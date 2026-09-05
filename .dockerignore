@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!docker/
+!docker/kernel/
+!docker/kernel/Dockerfile
+!scripts/
+!scripts/build_firmware.sh

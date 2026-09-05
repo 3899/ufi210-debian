@@ -1,0 +1,75 @@
+#!/bin/sh
+set -eu
+
+G=/sys/kernel/config/usb_gadget/g1
+C=$G/configs/c.1
+STATE=/run/zu02-usb-watchdog.unhealthy
+MIN_UNHEALTHY_SECONDS=5
+UDC="$(ls /sys/class/udc 2>/dev/null | head -n 1 || true)"
+
+log() {
+    logger -t zu02-usb-watchdog -- "$*"
+    echo "$*" >&2
+}
+
+monotonic_seconds() {
+    read -r uptime _ < /proc/uptime
+    printf '%s\n' "${uptime%%.*}"
+}
+
+usb_healthy() {
+    [ -n "$UDC" ] || return 1
+    [ -r "$G/UDC" ] || return 1
+    [ "$(cat "$G/UDC")" = "$UDC" ] || return 1
+    case "$(cat "$G/idVendor" 2>/dev/null || true)" in
+        0x18[dD]1) ;;
+        *) return 1 ;;
+    esac
+    case "$(cat "$G/idProduct" 2>/dev/null || true)" in
+        0x[dD]001) ;;
+        *) return 1 ;;
+    esac
+    [ -L "$C/rndis.usb0" ] || return 1
+    [ -L "$C/acm.usb0" ] || return 1
+    [ "$(find "$C" -maxdepth 1 -type l | wc -l)" -eq 2 ] || return 1
+    [ -e /sys/class/net/usb0 ] || return 1
+    systemctl is-active --quiet zu02-usb-gadget.service
+}
+
+if usb_healthy; then
+    rm -f "$STATE"
+    exit 0
+fi
+
+now="$(monotonic_seconds)"
+first=
+if [ -r "$STATE" ]; then
+    first="$(cat "$STATE" 2>/dev/null || true)"
+fi
+
+case "$first" in
+    ''|*[!0-9]*)
+        umask 077
+        printf '%s\n' "$now" > "$STATE"
+        log "USB gadget structural health check failed; waiting for a consecutive failure"
+        exit 0
+        ;;
+esac
+
+if [ $((now - first)) -lt "$MIN_UNHEALTHY_SECONDS" ]; then
+    exit 0
+fi
+
+rm -f "$STATE"
+log "USB gadget structure remained unhealthy; rebuilding fixed RNDIS and ACM"
+/usr/sbin/zu02-usb-gadget rebuild
+/usr/sbin/zu02-usb-network
+systemctl try-restart dnsmasq.service || true
+
+if usb_healthy; then
+    log "USB gadget structure recovered"
+    exit 0
+fi
+
+log "USB gadget structural recovery failed"
+exit 1

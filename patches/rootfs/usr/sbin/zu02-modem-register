@@ -1,0 +1,36 @@
+#!/bin/sh
+set -eu
+
+rmtfs_exec="$(systemctl show rmtfs.service -p ExecStart --value)"
+case "$rmtfs_exec" in
+    *'/usr/bin/rmtfs -r -P -s'*) ;;
+    *)
+        echo 'zu02-modem-register: rmtfs is not in read-only mode' >&2
+        exit 1
+        ;;
+esac
+
+attempt=0
+while [ "$attempt" -lt 90 ]; do
+    attempt=$((attempt + 1))
+    status="$(mmcli -m any --output-keyvalue 2>/dev/null || true)"
+    if printf '%s\n' "$status" \
+        | grep -q '^modem\.generic\.current-modes[[:space:]]*: allowed: 3g, 4g; preferred: 4g[[:space:]]*$'; then
+        echo 'zu02-modem-register: modem already uses 3G+4G with 4G preferred'
+        exit 0
+    fi
+    if [ -n "$status" ] && mmcli -m any \
+        --set-allowed-modes='3g|4g' \
+        --set-preferred-mode=4g; then
+        status="$(mmcli -m any --output-keyvalue)"
+        if printf '%s\n' "$status" \
+            | grep -q '^modem\.generic\.current-modes[[:space:]]*: allowed: 3g, 4g; preferred: 4g[[:space:]]*$'; then
+            echo 'zu02-modem-register: enabled 3G+4G with 4G preferred'
+            exit 0
+        fi
+    fi
+    sleep 1
+done
+
+echo 'zu02-modem-register: modem did not accept the default radio modes' >&2
+exit 1

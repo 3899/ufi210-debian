@@ -1,0 +1,154 @@
+#!/bin/sh
+set -eu
+
+G=/sys/kernel/config/usb_gadget/g1
+C=$G/configs/c.1
+UDC="$(ls /sys/class/udc 2>/dev/null | head -n 1 || true)"
+RNDIS_DEV_ADDR=
+RNDIS_HOST_ADDR=
+
+derive_rndis_addresses() {
+    seed=
+    for argument in $(cat /proc/cmdline 2>/dev/null || true); do
+        case "$argument" in
+            androidboot.serialno=*)
+                seed="${argument#androidboot.serialno=}"
+                break
+                ;;
+        esac
+    done
+    if [ -z "$seed" ] && [ -r /sys/block/mmcblk0/device/cid ]; then
+        seed="$(cat /sys/block/mmcblk0/device/cid)"
+    fi
+    [ -n "$seed" ] || seed=ufi210
+
+    suffix="$(printf '%s' "$seed" | sha256sum | cut -c1-10 | sed 's/../&:/g; s/:$//')"
+    RNDIS_DEV_ADDR="02:$suffix"
+    RNDIS_HOST_ADDR="06:$suffix"
+}
+
+link_function() {
+    [ -L "$C/$1" ] || (
+        cd "$G"
+        ln -s "functions/$1" configs/c.1
+    )
+}
+
+can_reuse_active_gadget() {
+    [ -n "$UDC" ] || return 1
+    [ -e "$G/UDC" ] || return 1
+    [ "$(cat "$G/UDC")" = "$UDC" ] || return 1
+    case "$(cat "$G/idVendor" 2>/dev/null || true)" in
+        0x18[dD]1) ;;
+        *) return 1 ;;
+    esac
+    case "$(cat "$G/idProduct" 2>/dev/null || true)" in
+        0x[dD]001) ;;
+        *) return 1 ;;
+    esac
+    [ "$(cat "$G/strings/0x409/serialnumber" 2>/dev/null || true)" = "ZU02-DW01" ] || return 1
+    [ -L "$C/rndis.usb0" ] || return 1
+    [ -L "$C/acm.usb0" ] || return 1
+    [ "$(find "$C" -maxdepth 1 -type l | wc -l)" -eq 2 ] || return 1
+    [ -L "$G/os_desc/c.1" ] || return 1
+    [ "$(cat "$G/functions/rndis.usb0/dev_addr" 2>/dev/null || true)" = "$RNDIS_DEV_ADDR" ] || return 1
+    [ "$(cat "$G/functions/rndis.usb0/host_addr" 2>/dev/null || true)" = "$RNDIS_HOST_ADDR" ]
+}
+
+unbind() {
+    [ -e "$G/UDC" ] || return 0
+
+    attempt=1
+    while [ "$attempt" -le 10 ]; do
+        [ -z "$(cat "$G/UDC")" ] && return 0
+        printf '\n' 2>/dev/null > "$G/UDC" || true
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+
+    echo "failed to unbind USB gadget after 10 attempts" >&2
+    return 1
+}
+
+setup() {
+    [ -n "$UDC" ] || {
+        echo "USB Device Controller not found" >&2
+        return 1
+    }
+    mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
+    mkdir -p "$G" "$G/strings/0x409" "$C/strings/0x409"
+    derive_rndis_addresses
+
+    # initramfs leaves this exact two-function gadget active across switch_root.
+    if can_reuse_active_gadget; then
+        echo "reusing active RNDIS + ACM gadget on $UDC" >&2
+        return 0
+    fi
+
+    unbind
+    find "$C" -maxdepth 1 -type l -delete
+    [ ! -L "$G/os_desc/c.1" ] || rm -f "$G/os_desc/c.1"
+
+    echo 0x18D1 > "$G/idVendor"
+    echo 0xD001 > "$G/idProduct"
+    echo 0xEF > "$G/bDeviceClass"
+    echo 0x02 > "$G/bDeviceSubClass"
+    echo 0x01 > "$G/bDeviceProtocol"
+    echo ZU02 > "$G/strings/0x409/manufacturer"
+    echo 'DW01 Debian' > "$G/strings/0x409/product"
+    echo ZU02-DW01 > "$G/strings/0x409/serialnumber"
+    echo 'RNDIS + ACM' > "$C/strings/0x409/configuration"
+    echo 250 > "$C/MaxPower"
+
+    mkdir -p "$G/functions/rndis.usb0" "$G/functions/acm.usb0"
+    echo "$RNDIS_DEV_ADDR" > "$G/functions/rndis.usb0/dev_addr"
+    echo "$RNDIS_HOST_ADDR" > "$G/functions/rndis.usb0/host_addr"
+
+    # Let Windows bind the first interface to RNDIS without a manual driver.
+    echo 1 > "$G/os_desc/use"
+    echo MSFT100 > "$G/os_desc/qw_sign"
+    echo 0xcd > "$G/os_desc/b_vendor_code"
+    echo RNDIS > "$G/functions/rndis.usb0/os_desc/interface.rndis/compatible_id"
+    echo 5162001 > "$G/functions/rndis.usb0/os_desc/interface.rndis/sub_compatible_id"
+
+    link_function rndis.usb0
+    link_function acm.usb0
+    ln -s "$C" "$G/os_desc/c.1"
+}
+
+activate() {
+    [ "$(cat "$G/UDC")" = "$UDC" ] && return 0
+
+    attempt=1
+    while [ "$attempt" -le 10 ]; do
+        if echo "$UDC" 2>/dev/null > "$G/UDC"; then
+            return 0
+        fi
+        echo "USB gadget activation attempt $attempt failed; retrying" >&2
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+
+    echo "failed to activate USB gadget after 10 attempts" >&2
+    return 1
+}
+
+reset() {
+    unbind || true
+}
+
+rebuild() {
+    unbind || true
+    [ ! -d "$C" ] || find "$C" -maxdepth 1 -type l -delete
+    [ ! -L "$G/os_desc/c.1" ] || rm -f "$G/os_desc/c.1"
+    setup
+    activate
+}
+
+case "${1:-}" in
+    setup) setup ;;
+    activate) activate ;;
+    reset) reset ;;
+    rebuild) rebuild ;;
+    *) echo 'usage: zu02-usb-gadget setup|activate|reset|rebuild' >&2; exit 2 ;;
+esac

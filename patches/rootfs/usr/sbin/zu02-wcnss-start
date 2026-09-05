@@ -1,0 +1,94 @@
+#!/bin/sh
+set -eu
+
+firmware_files='wcnss.mdt wcnss.b00 wcnss.b01 wcnss.b02 wcnss.b04 wcnss.b06 wcnss.b09 wcnss.b10 wcnss.b11 wcnss.b12'
+
+for mount_dir in /firmware /persist; do
+    if ! mountpoint -q "$mount_dir"; then
+        mount "$mount_dir"
+    fi
+    mount_options="$(findmnt -nro OPTIONS "$mount_dir")"
+    case ",$mount_options," in
+        *,ro,*) ;;
+        *)
+            echo "zu02-wcnss-start: $mount_dir is not read-only" >&2
+            exit 1
+            ;;
+    esac
+done
+
+for firmware_name in $firmware_files; do
+    firmware_path="/firmware/image/$firmware_name"
+    firmware_link="/usr/lib/firmware/$firmware_name"
+    [ -s "$firmware_path" ] || {
+        echo "zu02-wcnss-start: missing $firmware_path" >&2
+        exit 1
+    }
+    [ -L "$firmware_link" ] && [ "$(readlink "$firmware_link")" = "$firmware_path" ] || {
+        echo "zu02-wcnss-start: invalid link $firmware_link" >&2
+        exit 1
+    }
+done
+
+nv_path=/persist/WCNSS_qcom_wlan_nv.bin
+nv_link=/usr/lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin
+[ -s "$nv_path" ] || {
+    echo "zu02-wcnss-start: missing $nv_path" >&2
+    exit 1
+}
+[ -L "$nv_link" ] && [ "$(readlink "$nv_link")" = "$nv_path" ] || {
+    echo "zu02-wcnss-start: invalid link $nv_link" >&2
+    exit 1
+}
+
+find_wcnss_remoteproc() {
+    for remoteproc in /sys/class/remoteproc/remoteproc*; do
+        [ -r "$remoteproc/name" ] || continue
+        case "$(cat "$remoteproc/name")" in
+            *a204000*|*a21b000*|*wcnss*|*WCNSS*|*pronto*)
+                printf '%s\n' "$remoteproc"
+                return 0
+                ;;
+        esac
+    done
+    return 1
+}
+
+remoteproc=
+attempt=1
+while [ "$attempt" -le 30 ]; do
+    remoteproc="$(find_wcnss_remoteproc || true)"
+    [ -z "$remoteproc" ] || break
+    sleep 1
+    attempt=$((attempt + 1))
+done
+[ -n "$remoteproc" ] || {
+    echo "WCNSS remoteproc was not found" >&2
+    exit 1
+}
+
+if [ "$(cat "$remoteproc/state")" != "running" ]; then
+    echo start > "$remoteproc/state"
+fi
+
+attempt=1
+while [ "$attempt" -le 30 ]; do
+    if [ -e /sys/class/net/wlan0 ]; then
+        iw reg set CN
+        reg_attempt=1
+        while [ "$reg_attempt" -le 10 ]; do
+            if iw reg get | grep -q '^country CN:'; then
+                exit 0
+            fi
+            sleep 1
+            reg_attempt=$((reg_attempt + 1))
+        done
+        echo "CN regulatory domain did not become active" >&2
+        exit 1
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+done
+
+echo "wlan0 did not appear after WCNSS startup" >&2
+exit 1

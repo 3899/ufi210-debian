@@ -1,0 +1,40 @@
+# Generated build trees and artifacts
+/.build/
+/out/
+/release/
+
+# Device-specific backups, extracted firmware and third-party reference images
+/resource/backup/
+/AndroidBak/
+
+# Locally bundled platform tools
+/adb.exe
+/fastboot.exe
+/AdbWinApi.dll
+/AdbWinUsbApi.dll
+
+# Large firmware and disk image formats must never be committed accidentally
+*.bin
+*.ext4
+*.fat
+*.img
+*.raw
+*.simg
+*.sparse
+*.tar
+*.tar.*
+*.zip
+*.7z
+
+# Runtime and editor leftovers
+__pycache__/
+*.py[cod]
+*.log
+*.pid
+*.status
+*~
+.DS_Store
+Thumbs.db
+
+# temp files
+/temp

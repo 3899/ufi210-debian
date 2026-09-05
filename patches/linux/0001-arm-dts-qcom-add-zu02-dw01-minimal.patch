@@ -1,0 +1,174 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: MSM8909 DW01 Build <builder@localhost>
+Date: Mon, 31 Aug 2026 14:00:00 +0800
+Subject: [PATCH] ARM: dts: qcom: add ZU02 DW01 support
+
+Add a board description for the ZU02_main_v1.1 DW01. Keep the devices
+verified during RAM boot and enable the WCN3620 wireless subsystem using
+the shared MSM8909/PM8909 description. Phone-specific display,
+touchscreen, keys and external SD are intentionally omitted.
+---
+ Documentation/devicetree/bindings/sram/qcom,imem.yaml |  1 +
+ arch/arm/boot/dts/qcom/Makefile                       |  1 +
+ arch/arm/boot/dts/qcom/qcom-msm8909.dtsi              | 17 ++++
+ .../dts/qcom/qcom-msm8909-zu02-dw01.dts               | 97 +++++++++++++++++++
+ 4 files changed, 116 insertions(+)
+ create mode 100644 arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts
+
+diff --git a/Documentation/devicetree/bindings/sram/qcom,imem.yaml b/Documentation/devicetree/bindings/sram/qcom,imem.yaml
+index 444444444444..555555555555 100644
+--- a/Documentation/devicetree/bindings/sram/qcom,imem.yaml
++++ b/Documentation/devicetree/bindings/sram/qcom,imem.yaml
+@@ -21,5 +21,6 @@ properties:
+           - qcom,ipq5424-imem
+           - qcom,msm8226-imem
++          - qcom,msm8909-imem
+           - qcom,msm8974-imem
+           - qcom,msm8976-imem
+           - qcom,qcs404-imem
+
+diff --git a/arch/arm/boot/dts/qcom/Makefile b/arch/arm/boot/dts/qcom/Makefile
+index 111111111111..222222222222 100644
+--- a/arch/arm/boot/dts/qcom/Makefile
++++ b/arch/arm/boot/dts/qcom/Makefile
+@@ -301,6 +301,7 @@ dtb-$(CONFIG_ARCH_QCOM) += \
+ 	qcom-msm8909-lenovo-lxf-p5100.dtb \
+ 	qcom-msm8909-nokia-leo.dtb \
+ 	qcom-msm8909-nokia-sparkler.dtb \
++	qcom-msm8909-zu02-dw01.dtb \
+ 	qcom-msm8909-zte-sapphire.dtb \
+ 	qcom-msm8916-samsung-e5.dtb \
+ 	qcom-msm8916-samsung-e7.dtb \
+diff --git a/arch/arm/boot/dts/qcom/qcom-msm8909.dtsi b/arch/arm/boot/dts/qcom/qcom-msm8909.dtsi
+index 666666666666..777777777777 100644
+--- a/arch/arm/boot/dts/qcom/qcom-msm8909.dtsi
++++ b/arch/arm/boot/dts/qcom/qcom-msm8909.dtsi
+@@ -1257,6 +1257,23 @@ usb_hs_phy: phy {
+ 			};
+ 		};
+ 
++		imem: sram@8600000 {
++			compatible = "qcom,msm8909-imem", "syscon", "simple-mfd";
++			reg = <0x08600000 0x1000>;
++			ranges = <0 0x08600000 0x1000>;
++			#address-cells = <1>;
++			#size-cells = <1>;
++
++			reboot-mode {
++				compatible = "syscon-reboot-mode";
++				offset = <0x65c>;
++
++				mode-bootloader = <0x77665500>;
++				mode-normal = <0x77665501>;
++				mode-recovery = <0x77665502>;
++			};
++		};
++
+ 		wcnss: remoteproc@a21b000 {
+ 			compatible = "qcom,pronto-v3-pil", "qcom,pronto";
+ 			reg = <0x0a204000 0x2000>, <0x0a202000 0x1000>, <0x0a21b000 0x3000>;
+diff --git a/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts b/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts
+new file mode 100644
+index 000000000000..333333333333
+--- /dev/null
++++ b/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts
+@@ -0,0 +1,97 @@
++// SPDX-License-Identifier: GPL-2.0-only
++
++/dts-v1/;
++
++#include "qcom-msm8909-pm8909.dtsi"
++
++/ {
++	model = "DW01 (ZU02_main_v1.1)";
++	compatible = "zu02,dw01", "qcom,msm8909";
++	chassis-type = "embedded";
++
++	aliases {
++		mmc0 = &sdhc_1;
++		serial0 = &blsp_uart1;
++	};
++
++	chosen {
++		stdout-path = "serial0";
++	};
++};
++
++&blsp_uart1 {
++	status = "okay";
++};
++
++&pm8909_usbin {
++	status = "okay";
++};
++
++&sdhc_1 {
++	/delete-property/ mmc-hs200-1_8v;
++	/delete-property/ mmc-ddr-1_8v;
++	no-1-8-v;
++	cap-mmc-highspeed;
++	status = "okay";
++};
++
++&sdhc_2 {
++	status = "disabled";
++};
++
++&usb {
++	extcon = <&pm8909_usbin>;
++	dr_mode = "peripheral";
++	status = "okay";
++};
++
++&usb_hs_phy {
++	v1p8-supply = <&pm8909_l7>;
++	v3p3-supply = <&pm8909_l13>;
++	extcon = <&pm8909_usbin>;
++};
++
++&mpss {
++	status = "okay";
++};
++
++&wcnss {
++	status = "okay";
++};
++
++&wcnss_iris {
++	compatible = "qcom,wcn3620";
++	status = "okay";
++};
++
++&cpu0_2_alert0 {
++	temperature = <75000>;
++	hysteresis = <3000>;
++};
++
++&cpu1_3_alert0 {
++	temperature = <75000>;
++	hysteresis = <3000>;
++};
++
++&smd_rpm_regulators {
++	l5 {
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++	};
++
++	l7 {
++		regulator-min-microvolt = <1800000>;
++		regulator-max-microvolt = <1800000>;
++	};
++
++	l8 {
++		regulator-min-microvolt = <2850000>;
++		regulator-max-microvolt = <2900000>;
++	};
++
++	l13 {
++		regulator-min-microvolt = <3075000>;
++		regulator-max-microvolt = <3075000>;
++	};
++};
+-- 
+2.51.1

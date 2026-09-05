@@ -1,0 +1,61 @@
+name: 源码静态检查
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 检查 Shell 语法
+        run: |
+          for file in scripts/*.sh build.sh; do
+            bash -n "$file"
+          done
+          find patches/rootfs -type f \
+            \( -path '*/usr/sbin/*' -o -path '*/usr/local/bin/*' \) \
+            -exec sh -n {} \;
+          for file in patches/initramfs/*.sh; do
+            sh -n "$file"
+          done
+
+      - name: 检查 fastboot 重启兼容程序
+        run: |
+          cc -Wall -Wextra -Werror -O2 -o /tmp/ufi210-reboot-compat src/reboot-compat.c
+          set +e
+          /tmp/ufi210-reboot-compat unsupported
+          rc=$?
+          set -e
+          test "$rc" -eq 2
+
+      - name: 运行 Python 单元测试
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+
+      - name: 检查 PowerShell 语法
+        shell: pwsh
+        run: |
+          $failed = $false
+          Get-ChildItem scripts -Filter *.ps1 | ForEach-Object {
+              $tokens = $null
+              $errors = $null
+              [void][Management.Automation.Language.Parser]::ParseFile(
+                  $_.FullName,
+                  [ref]$tokens,
+                  [ref]$errors
+              )
+              if ($errors.Count -gt 0) {
+                  $failed = $true
+                  $errors | Format-List
+              }
+          }
+          if ($failed) { exit 1 }
+
+      - name: 审计公开仓库边界
+        run: bash scripts/audit_public_release.sh workspace

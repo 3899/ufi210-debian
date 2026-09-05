@@ -1,0 +1,123 @@
+#!/bin/sh
+set -eu
+
+nm_interface="${1:-}"
+action="${2:-}"
+
+case "$nm_interface" in
+    wwan0|wwan0qmi0) ;;
+    *) exit 0 ;;
+esac
+nm_device='wwan0qmi0'
+
+log() {
+    logger -t zu02-wwan-ip -- "$*"
+}
+
+bearer_value() {
+    key="$1"
+    printf '%s\n' "$bearer_status" \
+        | awk -F '[[:space:]]*:[[:space:]]*' -v key="$key" \
+            '$1 == key {print $2; exit}'
+}
+
+clear_network() {
+    ip route del default dev wwan0 metric 700 2>/dev/null || true
+    ip address flush dev wwan0 scope global 2>/dev/null || true
+}
+
+case "$action" in
+    down|pre-down)
+        clear_network
+        exit 0
+        ;;
+    up|dhcp4-change) ;;
+    *) exit 0 ;;
+esac
+
+bearer_status=''
+bearer_attempt=1
+max_bearer_attempts=15
+while [ "$bearer_attempt" -le "$max_bearer_attempts" ]; do
+    modem_status="$(mmcli -m any --output-keyvalue 2>/dev/null || true)"
+    bearer_indexes="$(
+        printf '%s\n' "$modem_status" \
+            | sed -n \
+                -e 's#^modem\.generic\.bearers[[:space:]]*:[[:space:]]*/org/freedesktop/ModemManager1/Bearer/\([0-9][0-9]*\)[[:space:]]*$#\1#p' \
+                -e 's#^modem\.generic\.bearers\.value\[[0-9][0-9]*\][[:space:]]*:[[:space:]]*/org/freedesktop/ModemManager1/Bearer/\([0-9][0-9]*\)[[:space:]]*$#\1#p'
+    )"
+
+    for bearer_index in $bearer_indexes; do
+        candidate="$(mmcli --output-keyvalue --bearer="$bearer_index" 2>/dev/null || true)"
+        if printf '%s\n' "$candidate" \
+            | grep -q '^bearer\.status\.connected[[:space:]]*: yes[[:space:]]*$'; then
+            bearer_status="$candidate"
+            break
+        fi
+    done
+    [ -z "$bearer_status" ] || break
+    [ "$bearer_attempt" -lt "$max_bearer_attempts" ] || break
+    sleep 1
+    bearer_attempt=$((bearer_attempt + 1))
+done
+
+[ -n "$bearer_status" ] || {
+    log "no connected bearer was found after $bearer_attempt attempts"
+    exit 1
+}
+
+[ "$(bearer_value bearer.status.interface)" = 'wwan0' ] || {
+    log 'the connected bearer is not attached to wwan0'
+    exit 1
+}
+
+address="$(bearer_value bearer.ipv4-config.address)"
+prefix="$(bearer_value bearer.ipv4-config.prefix)"
+gateway="$(bearer_value bearer.ipv4-config.gateway)"
+mtu="$(bearer_value bearer.ipv4-config.mtu)"
+
+case "$address:$gateway" in
+    *[!0-9.:]*|:*|*:)
+        log 'the bearer returned invalid IPv4 addresses'
+        exit 1
+        ;;
+esac
+case "$prefix" in
+    ''|*[!0-9]*) log 'the bearer returned an invalid IPv4 prefix'; exit 1 ;;
+esac
+[ "$prefix" -ge 1 ] && [ "$prefix" -le 32 ] || exit 1
+case "$mtu" in
+    ''|*[!0-9]*) log 'the bearer returned an invalid MTU'; exit 1 ;;
+esac
+[ "$mtu" -ge 576 ] && [ "$mtu" -le 2040 ] || exit 1
+
+dns_servers="$(
+    printf '%s\n' "$bearer_status" \
+        | awk -F '[[:space:]]*:[[:space:]]*' \
+            '$1 ~ /^bearer\.ipv4-config\.dns\.value\[[0-9]+\]$/ {print $2}'
+)"
+dns_csv=''
+for dns_server in $dns_servers; do
+    case "$dns_server" in
+        *[!0-9.]*|'') continue ;;
+    esac
+    if [ -n "$dns_csv" ]; then
+        dns_csv="$dns_csv,$dns_server"
+    else
+        dns_csv="$dns_server"
+    fi
+done
+
+if [ -n "$dns_csv" ]; then
+    nmcli device modify "$nm_device" \
+        ipv4.method manual \
+        ipv4.addresses "$address/$prefix" \
+        ipv4.gateway "$gateway" \
+        ipv4.dns "$dns_csv" >/dev/null
+fi
+
+ip link set wwan0 mtu "$mtu" up
+ip address replace "$address/$prefix" dev wwan0
+ip route replace "$gateway/32" dev wwan0
+ip route replace default via "$gateway" dev wwan0 metric 700
+log "applied bearer IPv4 configuration to wwan0"

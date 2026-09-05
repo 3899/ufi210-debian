@@ -1,0 +1,39 @@
+#!/bin/sh
+set -eu
+
+open_wwan_link() {
+    ip link set wwan0 up
+}
+
+if [ -e /dev/wwan0qmi0 ] && [ -e /sys/class/net/wwan0 ]; then
+    open_wwan_link
+    exit 0
+fi
+
+modprobe qcom_bam_dmux
+modprobe rpmsg_wwan_ctrl
+
+# MSM8909 creates DATA5_CNTL and BAM-DMUX only after this DPM request.
+attempt=0
+while [ "$attempt" -lt 45 ]; do
+    attempt=$((attempt + 1))
+    if timeout 10 qmicli -d qrtr://0 \
+        --dpm-open-port='ctrl-ep-type=embedded,ctrl-ep-iface-number=0,ctrl-port-name=DATA5_CNTL,hw-data-ep-type=bam-dmux,hw-data-ep-iface-number=0,hw-data-rx-id=5,hw-data-tx-id=4'; then
+        break
+    fi
+    sleep 1
+done
+
+attempt=0
+while [ "$attempt" -lt 20 ]; do
+    if [ -e /dev/wwan0qmi0 ] && [ -e /sys/class/net/wwan0 ]; then
+        open_wwan_link
+        echo 'zu02-modem-prepare: QMI and BAM-DMUX ports are ready'
+        exit 0
+    fi
+    attempt=$((attempt + 1))
+    sleep 1
+done
+
+echo 'zu02-modem-prepare: QMI control or BAM-DMUX net port did not appear' >&2
+exit 1

@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+unset LC_ALL
+export LANG=zh_CN.UTF-8
+export LC_MESSAGES=zh_CN.UTF-8
+exec /usr/bin/nmtui "$@"
