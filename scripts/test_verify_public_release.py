@@ -61,8 +61,10 @@ class PublicReleaseVerificationTests(unittest.TestCase):
             with tarfile.open(archive_path, "w:xz") as archive:
                 directory = tarfile.TarInfo("release/")
                 directory.type = tarfile.DIRTYPE
+                directory.mode = 0o755
                 archive.addfile(directory)
                 member = tarfile.TarInfo("release/file")
+                member.mode = 0o644
                 content = b"ok"
                 member.size = len(content)
                 archive.addfile(member, io.BytesIO(content))

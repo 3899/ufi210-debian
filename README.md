@@ -162,7 +162,7 @@ ssh root@192.168.68.1
 
 ```sh
 cd /work
-bash scripts/package_public_release_candidate.sh m7-persistent-rc2
+bash scripts/package_public_release_candidate.sh m7-persistent-rc3
 ```
 
 公开候选包含：
