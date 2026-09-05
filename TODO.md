@@ -46,6 +46,7 @@
 - [x] WCNSS remoteproc、WCN36XX、CN 监管域和 Wi-Fi 扫描通过。
 - [x] WPA2 AP、DHCP、客户端关联和双向传输通过。
 - [x] MPSS remoteproc、QRTR、BAM-DMUX、WWAN control 和 ModemManager 可用。
+- [x] 只读验证 QMI DMS/NAS/WMS、两个 AT 端口和 ModemManager Messaging D-Bus 接口。
 - [x] modem 与 persist 只读挂载，rootfs 只保存符号链接。
 - [x] 早期候选完成 20 次 Wi-Fi AP/managed 循环和 20 次 LTE 拨号循环。
 - [x] 当前持久 system 候选完成 20 次预置 Wi-Fi AP/managed 循环，固定 BSSID、扫描恢复、
@@ -54,6 +55,7 @@
 - [x] 真实断电冷启动后复测 SIM 网络注册；未创建 bearer，敏感分区前后哈希不变，见
   `out/debian-system-device-test/lte-registration-20260905-071357/`。
 - [ ] 有效数据套餐 SIM 到位后复测 LTE 数据、DNS、NAT 和断开清理。
+- [ ] 使用可收发短信的有效 SIM 完成 ModemManager 短信收发回归。
 
 ## M4：网络与安全
 
