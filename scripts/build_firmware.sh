@@ -90,24 +90,25 @@ SOURCE_ROOT="$SOURCE_ROOT" \
     bash "$PROJECT_ROOT/scripts/build_mainline_kernel.sh"
 
 if [[ -n "$RELEASE_VERSION" ]]; then
-    log "以固定 Debian Snapshot 执行两轮独立 system rootfs 构建"
-    bash "$PROJECT_ROOT/scripts/build_debian_system_reproducibly.sh"
+    log "以固定 Debian Snapshot 执行两轮独立 large-rootfs 构建"
+    bash "$PROJECT_ROOT/scripts/build_debian_large_rootfs_reproducibly.sh"
 else
-    log "构建 Debian Bookworm armhf system rootfs"
+    log "构建 Debian Bookworm armhf 大根卷"
     FORCE="$FORCE" \
-    BUILD_DIR="$BUILD_ROOT/msm8909-debian-system" \
-        bash "$PROJECT_ROOT/scripts/build_debian_system.sh"
+    BUILD_DIR="$BUILD_ROOT/msm8909-debian-large-rootfs" \
+        bash "$PROJECT_ROOT/scripts/build_debian_large_rootfs.sh"
 fi
 
 log "执行独立静态验收"
-bash "$PROJECT_ROOT/scripts/verify_debian_system.sh"
+bash "$PROJECT_ROOT/scripts/verify_debian_large_rootfs.sh"
 
 if [[ -n "$RELEASE_VERSION" ]]; then
     log "生成候选发布包：$RELEASE_VERSION"
     bash "$PROJECT_ROOT/scripts/package_release_candidate.sh" "$RELEASE_VERSION"
 fi
 
-log "纯 Debian 固件构建完成"
-printf 'rootfs=%s\n' "$PROJECT_ROOT/out/mainline/debian-system/debian-bookworm-armhf-system.ext4"
-printf 'data=%s\n' "$PROJECT_ROOT/out/mainline/debian-system/debian-bookworm-armhf-data.ext4"
-printf 'boot=%s\n' "$PROJECT_ROOT/out/mainline/debian-system/boot-debian-system.img"
+log "纯 Debian 大根卷固件构建完成"
+printf 'rootfs_system=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-system.img"
+printf 'rootfs_cache=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-cache.img"
+printf 'rootfs_userdata=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-userdata.img"
+printf 'boot=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/boot-debian-large-rootfs.img"

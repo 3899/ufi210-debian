@@ -63,7 +63,7 @@ if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) { throw "缺少工具：$
 if ($Cycles -lt 1 -or $Cycles -gt 100) { throw "循环次数必须在 1 至 100 之间" }
 if ($Channel -lt 1 -or $Channel -gt 13) { throw "2.4 GHz 测试信道必须在 1 至 13 之间" }
 
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ("wifi-ap-device-cycles-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 $CsvPath = Join-Path $OutputDir "cycles.csv"

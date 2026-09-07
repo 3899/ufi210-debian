@@ -7,7 +7,7 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${1:-}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/out/release-candidate}"
 SOURCE_ROOT="${DEBIAN_SOURCE_ROOT:-$PROJECT_ROOT/out/debian-corresponding-sources/$VERSION}"
-ROOTFS_TARBALL="$PROJECT_ROOT/out/mainline/debian-system/debian-bookworm-armhf-system-rootfs.tar.xz"
+ROOTFS_TARBALL="$PROJECT_ROOT/out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-rootfs.tar.xz"
 KERNEL_OUT="$PROJECT_ROOT/out/mainline/kernel"
 KERNEL_MANIFEST="$KERNEL_OUT/BUILD-MANIFEST.txt"
 KERNEL_PATCH="$PROJECT_ROOT/patches/linux/0001-arm-dts-qcom-add-zu02-dw01-minimal.patch"
@@ -48,7 +48,7 @@ if [[ -n "$VERIFIED_KERNEL_SOURCE_ARCHIVE" ]]; then
 fi
 [[ -s "$PACKAGE_SCRIPT" && -s "$COLLECTOR" && -s "$ARCHIVE_VERIFIER" ]] \
     || die "缺少候选打包器、Debian 源码收集器或发布归档验收器"
-[[ -s "$ROOTFS_TARBALL" ]] || die "缺少 Debian system rootfs tarball"
+[[ -s "$ROOTFS_TARBALL" ]] || die "缺少 Debian large-rootfs rootfs tarball"
 for required in "$KERNEL_MANIFEST" "$KERNEL_PATCH" "$KERNEL_CONFIG"; do
     [[ -s "$required" ]] || die "缺少内核源码归档输入：$required"
 done
@@ -102,6 +102,18 @@ collection="$SOURCE_ROOT/collection"
 archive_collection="$collection"
 mkdir -p "$SOURCE_ROOT"
 
+create_archive() {
+    local parent="$1"
+    local name="$2"
+    local output="$3"
+    tar --sort=name --format=posix \
+        --pax-option=delete=atime,delete=ctime \
+        --owner=0 --group=0 --numeric-owner \
+        --mtime="@$SOURCE_DATE_EPOCH" \
+        -C "$parent" -cf - "$name" \
+        | xz -T1 -3 > "$output"
+}
+
 tmp_dir="$(mktemp -d "$SOURCE_ROOT/package-public.XXXXXX")"
 case "$tmp_dir" in
     "$SOURCE_ROOT"/package-public.*) ;;
@@ -132,14 +144,28 @@ kernel_release="$(kernel_manifest_value kernel_release)"
 kernel_source_key="${kernel_patch_sha256:0:12}-${kernel_reference_config_sha256:0:12}"
 kernel_checkout="$KERNEL_SOURCE_ROOT/linux-$kernel_source_key"
 if [[ -n "$VERIFIED_KERNEL_SOURCE_ARCHIVE" ]]; then
+    mapfile -t reused_kernel_roots < <(
+        tar -tJf "$VERIFIED_KERNEL_SOURCE_ARCHIVE" \
+            | awk -F/ 'NF {print $1}' | sort -u
+    )
+    (( ${#reused_kernel_roots[@]} == 1 )) \
+        || die "已验证 Linux 对应源码归档的根目录数量不是 1"
+    reused_kernel_root="${reused_kernel_roots[0]}"
+    [[ "$reused_kernel_root" =~ ^ufi210-debian-kernel-source-[0-9A-Za-z._-]+$ ]] \
+        || die "已验证 Linux 对应源码归档的根目录名称无效"
     tar -tJf "$VERIFIED_KERNEL_SOURCE_ARCHIVE" \
-        | awk -F/ -v root="$kernel_source_name" \
+        | awk -F/ -v root="$reused_kernel_root" \
             '$1 != root || $0 ~ /(^|\/)\.\.(\/|$)/ { exit 1 }' \
         || die "已验证 Linux 对应源码归档的根目录或路径边界无效"
     tar -xJOf "$VERIFIED_KERNEL_SOURCE_ARCHIVE" \
-        "$kernel_source_name/UFI210-BUILD-METADATA.txt" >/dev/null \
+        "$reused_kernel_root/UFI210-BUILD-METADATA.txt" >/dev/null \
         || die "已验证 Linux 对应源码归档缺少构建元数据"
-    install -m 0644 "$VERIFIED_KERNEL_SOURCE_ARCHIVE" "$kernel_source_archive"
+    reused_kernel_stage="$tmp_dir/$kernel_source_name"
+    mkdir -p "$reused_kernel_stage"
+    tar --no-same-owner --no-same-permissions --strip-components=1 \
+        -C "$reused_kernel_stage" -xJf "$VERIFIED_KERNEL_SOURCE_ARCHIVE"
+    create_archive "$tmp_dir" "$kernel_source_name" "$kernel_source_archive"
+    xz -t "$kernel_source_archive"
     printf '复用同版本且已通过 SHA256 核对的 Linux 对应源码归档\n'
 else
     [[ -d "$kernel_checkout/.git" ]] || die "缺少固定提交的内核 Git 工作树：$kernel_checkout"

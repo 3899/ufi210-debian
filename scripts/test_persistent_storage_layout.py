@@ -8,30 +8,32 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class PersistentStorageLayoutTests(unittest.TestCase):
-    def test_installer_requires_explicit_userdata_erasure(self) -> None:
-        installer = (PROJECT_ROOT / "scripts/install_debian_system.ps1").read_text(
+    def test_installer_requires_explicit_cache_and_userdata_erasure(self) -> None:
+        installer = (PROJECT_ROOT / "scripts/install_debian_large_rootfs.ps1").read_text(
             encoding="utf-8"
         )
         batch = (PROJECT_ROOT / "install.bat").read_text(encoding="utf-8")
-        self.assertIn("[switch]$ConfirmEraseUserdata", installer)
-        self.assertIn("if (-not $ConfirmEraseUserdata)", installer)
-        self.assertIn("-ConfirmEraseUserdata", batch)
+        self.assertIn("[switch]$ConfirmEraseCacheAndUserdata", installer)
+        self.assertIn("if (-not $ConfirmEraseCacheAndUserdata)", installer)
+        self.assertIn("-ConfirmEraseCacheAndUserdata", batch)
 
     def test_installer_flashes_boot_last_without_touching_sensitive_partitions(self) -> None:
-        installer = (PROJECT_ROOT / "scripts/install_debian_system.ps1").read_text(
+        installer = (PROJECT_ROOT / "scripts/install_debian_large_rootfs.ps1").read_text(
             encoding="utf-8"
         )
         operations = (
-            '("-s", $fastbootSerial, "flash", "system", $RootfsImage)',
+            '("-s", $fastbootSerial, "erase", "system")',
+            '("-s", $fastbootSerial, "erase", "cache")',
             '("-s", $fastbootSerial, "erase", "userdata")',
-            '("-s", $fastbootSerial, "flash", "userdata", $DataImage)',
+            '("-s", $fastbootSerial, "flash", "system", $RootfsSystemImage)',
+            '("-s", $fastbootSerial, "flash", "cache", $RootfsCacheImage)',
+            '("-s", $fastbootSerial, "flash", "userdata", $RootfsUserdataImage)',
             '("-s", $fastbootSerial, "flash", "boot", $BootImage)',
         )
         positions = [installer.index(operation) for operation in operations]
         self.assertEqual(positions, sorted(positions))
         for partition in (
             "aboot",
-            "cache",
             "fsg",
             "modem",
             "modemst1",
@@ -41,30 +43,62 @@ class PersistentStorageLayoutTests(unittest.TestCase):
         ):
             self.assertNotIn(f'"flash", "{partition}"', installer)
             self.assertNotIn(f'"erase", "{partition}"', installer)
+        for gpt_name in ("gpt", "partition", "primarygpt", "backupgpt"):
+            self.assertNotIn(f'"flash", "{gpt_name}"', installer.lower())
+            self.assertNotIn(f'"erase", "{gpt_name}"', installer.lower())
 
     def test_installer_uses_unambiguous_native_command_binding(self) -> None:
-        installer = (PROJECT_ROOT / "scripts/install_debian_system.ps1").read_text(
+        installer = (PROJECT_ROOT / "scripts/install_debian_large_rootfs.ps1").read_text(
             encoding="utf-8"
         )
         self.assertNotRegex(installer, r"Invoke-Native\s+\$(?:Adb|Fastboot)\s+@\(")
         self.assertIn("Invoke-Native -Executable $Adb -CommandArgs @(", installer)
         self.assertIn("Invoke-Native -Executable $Fastboot -CommandArgs @(", installer)
 
-    def test_build_defines_deterministic_userdata_filesystem(self) -> None:
+    def test_build_defines_deterministic_large_rootfs_segments(self) -> None:
         build = (PROJECT_ROOT / "scripts/build_debian_cache.sh").read_text(
             encoding="utf-8"
         )
         expected = (
-            'DATA_PARTITION_SIZE=1928314368',
-            'DATA_FILESYSTEM_SIZE=1928310784',
-            'DATA_UUID="89090000-0000-4000-8000-000000000029"',
-            'DATA_HASH_SEED="89090000-0000-4000-8000-000000000030"',
-            'DATA_LABEL="ufi210-data"',
-            "PARTLABEL=userdata /data ext4 defaults,noatime,nosuid,nodev,nofail,"
-            "x-systemd.growfs,x-systemd.device-timeout=30s 0 2",
+            'LARGE_ROOTFS_SIZE=3485240832',
+            'LARGE_ROOTFS_FILESYSTEM_SIZE=3485237248',
+            'ROOTFS_UUID="89090000-0000-4000-8000-000000000031"',
+            'ROOTFS_HASH_SEED="89090000-0000-4000-8000-000000000032"',
+            'ROOTFS_LABEL="ufi210-root"',
+            'ROOTFS_DEVICE="/dev/mapper/ufi210-root"',
+            'ROOTFS_AUTO_GROW=disabled',
+            'ROOTFS_SYSTEM_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-system.img"',
+            'ROOTFS_CACHE_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-cache.img"',
+            'ROOTFS_USERDATA_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-userdata.img"',
+            'rootfs_segments=complete-prebuilt-filesystem',
         )
         for value in expected:
             self.assertIn(value, build)
+
+    def test_installer_validates_private_gpt_before_writing(self) -> None:
+        installer = (PROJECT_ROOT / "scripts/install_debian_large_rootfs.ps1").read_text(
+            encoding="utf-8"
+        )
+        for value in (
+            "Assert-GptBackups",
+            "Get-Crc32",
+            "主备 GPT 磁盘 GUID 不一致",
+            "主备 GPT 分区条目不一致",
+            'Start = 461920L; Last = 2978503L',
+            'Start = 3044040L; Last = 3568327L',
+            'Start = 3803136L; Last = 7569374L',
+            'gpt_changes = "none"',
+        ):
+            self.assertIn(value, installer)
+        self.assertEqual(installer.count("@{ Number ="), 29)
+        self.assertIn(
+            '@{ Number = 1; Name = "modem"; Start = 131072L; Last = 262143L }',
+            installer,
+        )
+        self.assertIn(
+            '@{ Number = 19; Name = "sec"; Start = 396352L; Last = 396383L }',
+            installer,
+        )
 
     def test_modem_time_sync_is_forward_only_and_bounded(self) -> None:
         script = (
@@ -95,6 +129,52 @@ class PersistentStorageLayoutTests(unittest.TestCase):
             script,
         )
         self.assertIn('rm -rf -- "$RUN_B" "$BUILD_B"', script)
+        runner = (
+            PROJECT_ROOT / "scripts/run_debian_reproducibility_background.sh"
+        ).read_text(encoding="utf-8")
+        self.assertGreaterEqual(
+            runner.count('RESUME_VERIFIED_A="$RESUME_VERIFIED_A"'), 2
+        )
+
+    def test_installer_validates_every_input_before_first_write(self) -> None:
+        installer = (PROJECT_ROOT / "scripts/install_debian_large_rootfs.ps1").read_text(
+            encoding="utf-8"
+        )
+        first_write = installer.index(
+            'Invoke-Native -Executable $Fastboot -CommandArgs @("-s", $fastbootSerial, "erase", "system")'
+        )
+        for validation in (
+            "Assert-GptBackups $RecoveryBackupDirectory",
+            "Assert-Hash $RootfsSystemImage",
+            "Assert-Hash $RootfsCacheImage",
+            "Assert-Hash $RootfsUserdataImage",
+            "Assert-Hash $BootImage",
+            "system 根卷分段大小错误",
+            "cache 根卷分段大小错误",
+            "userdata 根卷分段大小错误",
+            'Get-FastbootVariable $fastbootSerial "partition-size:system"',
+            'Get-FastbootVariable $fastbootSerial "partition-size:cache"',
+            'Get-FastbootVariable $fastbootSerial "partition-size:userdata"',
+        ):
+            with self.subTest(validation=validation):
+                self.assertLess(installer.index(validation), first_write)
+
+    def test_fault_injection_covers_release_blockers_without_device_access(self) -> None:
+        script = (
+            PROJECT_ROOT / "scripts/test_large_rootfs_installer_fail_closed.ps1"
+        ).read_text(encoding="utf-8")
+        for case in (
+            'Invoke-ExpectedFailure "missing-gpt"',
+            'Invoke-ExpectedFailure "bad-primary-gpt-result"',
+            'Invoke-ExpectedFailure "bad-backup-gpt-result"',
+            'Invoke-ExpectedFailure "wrong-disk-sectors-result"',
+            'Invoke-ExpectedFailure "wrong-manifest-result"',
+            'Invoke-ExpectedFailure "wrong-hash-result"',
+            'Invoke-ExpectedFailure "truncated-result"',
+            '"device_access=none"',
+            '"fastboot_erase_or_flash=none"',
+        ):
+            self.assertIn(case, script)
 
 
 if __name__ == "__main__":

@@ -9,9 +9,9 @@ RESUME_VERIFIED_A="${RESUME_VERIFIED_A:-0}"
 BUILD_SCRIPT="${BUILD_SCRIPT:-$PROJECT_ROOT/scripts/build_debian_cache.sh}"
 VERIFY_SCRIPT="${VERIFY_SCRIPT:-$PROJECT_ROOT/scripts/verify_debian_cache.sh}"
 case "$TARGET_PARTITION" in
-    cache|system) ;;
+    cache|system|large-rootfs) ;;
     *)
-        printf '错误：TARGET_PARTITION 只允许 cache 或 system\n' >&2
+        printf '错误：TARGET_PARTITION 只允许 cache、system 或 large-rootfs\n' >&2
         exit 1
         ;;
 esac
@@ -29,7 +29,6 @@ REPRO_ROOT="${REPRO_ROOT:-$EXPECTED_REPRO_ROOT}"
 BUILD_ROOT="${BUILD_ROOT:-$EXPECTED_BUILD_ROOT}"
 PUBLISH_DIR="${PUBLISH_DIR:-$EXPECTED_PUBLISH_DIR}"
 FILES=(
-    "debian-bookworm-armhf-${TARGET_PARTITION}.ext4"
     "debian-bookworm-armhf-${TARGET_PARTITION}-rootfs.tar.xz"
     "boot-debian-${TARGET_PARTITION}.img"
     initramfs-zu02-debian
@@ -39,6 +38,15 @@ FILES=(
     WCNSS-FIRMWARE-MANIFEST.txt
     MPSS-FIRMWARE-MANIFEST.txt
 )
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    FILES+=(
+        "debian-bookworm-armhf-large-rootfs-system.img"
+        "debian-bookworm-armhf-large-rootfs-cache.img"
+        "debian-bookworm-armhf-large-rootfs-userdata.img"
+    )
+else
+    FILES+=("debian-bookworm-armhf-${TARGET_PARTITION}.ext4")
+fi
 if [[ "$TARGET_PARTITION" == system ]]; then
     FILES+=("debian-bookworm-armhf-data.ext4")
 fi

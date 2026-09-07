@@ -5,16 +5,18 @@ Debian 12 Bookworm `armhf` 无头基础环境，不包含桌面、触摸栈或 W
 
 ## 安装结果
 
-安装器只改写三个分区：
+安装器只改写四个分区，GPT 不变：
 
 | 分区 | 内容 | 持久性 |
 | --- | --- | --- |
 | `boot` | Linux kernel、initramfs、QCDT v3 与 DW01 DTB | 断电保留 |
-| `system` | Debian rootfs | 断电保留，首次启动扩容至完整分区 |
-| `userdata` | Debian `/data` | 原内容永久擦除，首次启动扩容至完整分区 |
+| `system` | Debian 根卷第一段 | 断电保留 |
+| `cache` | Debian 根卷第二段 | 原内容永久覆盖，断电保留 |
+| `userdata` | Debian 根卷第三段 | 原内容永久覆盖，断电保留 |
 
-原 Android system 和 userdata 会被覆盖。GPT、aboot、recovery、modem、modemst1/2、fsg、
-persist 和 cache 不会被安装器改写。普通重启和断电上电应直接进入 Debian，不会返回 Android。
+原 Android system、cache 和 userdata 会被覆盖。initramfs 按固定顺序把三者组合为一个约
+3.25 GiB 的 `/dev/mapper/ufi210-root`。GPT、aboot、recovery、modem、modemst1/2、fsg 和
+persist 不会被安装器改写。普通重启和断电上电应直接进入 Debian，不会返回 Android。
 
 ## 安装前准备
 
@@ -40,7 +42,7 @@ install.bat
 或在 PowerShell 执行：
 
 ```powershell
-.\scripts\install_debian_system.ps1 -ConfirmPersistentInstall -ConfirmEraseUserdata
+.\scripts\install_debian_large_rootfs.ps1 -ConfirmPersistentInstall -ConfirmEraseCacheAndUserdata
 ```
 
 脚本按以下顺序自动完成：
@@ -48,10 +50,11 @@ install.bat
 1. 核对镜像 manifest 与 SHA256。
 2. 从当前系统只读备份完整 32 MiB boot 分区。
 3. 核对 Android 或 Debian 身份、SoC ID 245 和分区尺寸。
-4. 进入原厂 fastboot，核对 product 和 boot/system/userdata 分区边界。
-5. 在同一次 fastboot 会话中写 system、擦除并写 userdata，最后执行 `flash boot`。
-6. 通过 `fastboot boot` RAM 启动同一个 boot 镜像，验证已写入的 system rootfs 和 `/data`。
-7. 核对两个 ext4 的 UUID、自动扩容、`/data` 可写性、boot 分区回读哈希、服务、remoteproc
+4. 进入原厂 fastboot，核对 product 和 boot/system/cache/userdata 分区边界。
+5. 在同一次 fastboot 会话中擦除 system/cache/userdata，依次写入三个 rootfs 分段，最后执行
+   `flash boot`。
+6. 通过 `fastboot boot` RAM 启动同一个 boot 镜像，验证已写入的 dm-linear 根卷。
+7. 核对 dm table、ext4 UUID/总容量/可写性、boot 分区回读哈希、服务、remoteproc
    和 warm reboot 模式。
 8. 执行普通 reboot，以前后不同的 `boot_id` 验证持久 boot 自动返回 Debian。
 
@@ -62,15 +65,17 @@ install.bat
 如果预检已经生成 boot 备份，但脚本在任何写入前停在 fastboot，可指定该备份继续：
 
 ```powershell
-.\scripts\install_debian_system.ps1 \
+.\scripts\install_debian_large_rootfs.ps1 \
   -ConfirmPersistentInstall \
-  -ConfirmEraseUserdata \
+  -ConfirmEraseCacheAndUserdata \
   -ConfirmFastbootTarget \
-  -BootBackupPath '<绝对路径>\boot-before-install.img'
+  -BootBackupPath '<绝对路径>\boot-before-install.img' \
+  -RecoveryBackupDirectory '<绝对路径>\device-recovery'
 ```
 
-只有该备份恰为 32 MiB 且属于当前设备时才能继续。`-ConfirmEraseUserdata` 表示确认永久删除
-userdata 内的 Android 数据，缺少该参数时安装器会在刷写前停止。
+只有 boot 备份恰为 32 MiB、主备 GPT 均通过 CRC/几何校验时才能继续。
+`-ConfirmEraseCacheAndUserdata` 表示确认永久删除 cache 和 userdata 原内容，缺少该参数时
+安装器会在刷写前停止。
 
 ## 首次连接
 
@@ -116,12 +121,16 @@ reboot
 
 ## 存储布局
 
-`/` 位于 system，完整容量约 1.20 GiB；`/data` 位于 userdata，完整容量约 1.80 GiB。建议把
-额外应用、服务数据和备份分别放在 `/data/apps`、`/data/srv` 和 `/data/backups`。系统不会把
-`/var/lib` 等启动关键目录自动迁移到 `/data`，避免数据盘故障阻断 USB/SSH 救援。
+`/` 位于 `system + cache + userdata` 组成的 dm-linear 卷，ext4 总容量为 3,485,237,248 字节，
+即约 3.25 GiB。`apt install`、`/usr`、`/var`、`/opt` 和 `/home` 都直接使用同一根文件系统，
+无需把应用或数据库手工迁移到 `/data`；本方案没有独立 `/data` 挂载。
 
-两个 ext4 均使用 `noatime`，系统启用每周 `fstrim.timer`。默认不建立 eMMC swap，以减少写放大；
+ext4 使用 `noatime`，系统启用每周 `fstrim.timer`。默认不建立 eMMC swap，以减少写放大；
 512 MiB 内存不足的工作负载应先限制服务内存，而不是依赖持续换页。
+
+从旧的单 system 或 system+userdata 布局升级到本方案时，必须重新写入 system、cache 和 userdata
+三个分段，不能保留旧 rootfs；三者共同构成一个 ext4，缺少任何一段都会破坏文件系统。后续版本
+只有在发布说明明确标注为 boot-only 且 rootfs 布局与 UUID 均未变化时，才允许仅更新 boot。
 
 ## 从 Debian 进入 fastboot
 
@@ -151,7 +160,7 @@ ModemManager 和 SIM 枚举，不能据此宣称 LTE 数据可用。
 
 ## 恢复 Android
 
-本安装会覆盖 boot、system 和 userdata，不能通过普通重启回到 Android。恢复时至少刷回同一台
+本安装会覆盖 boot、system、cache 和 userdata，不能通过普通重启回到 Android。恢复时至少刷回同一台
 设备自己的：
 
 ```text
@@ -162,5 +171,5 @@ system
 如果设备只能进入 Qualcomm 9008，使用本机完整原厂备份和已验证的 programmer 恢复。不要刷入
 其他设备的 GPT、aboot、modemst1/2、fsg、persist、EFS 或身份数据。
 
-仅恢复 boot 和 system 不会还原已擦除的 Android userdata；返回 Android 时还必须按该 Android
-固件的恢复流程重新格式化或恢复 userdata。
+仅恢复 boot 和 system 不会还原已覆盖的 Android cache/userdata；返回 Android 时还必须按该
+Android 固件的恢复流程重新格式化或恢复 cache 和 userdata。

@@ -80,7 +80,7 @@ if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) { throw "缺少工具：$
 if ($ReadyTimeoutSeconds -lt 30 -or $ObservationSeconds -lt 0) {
     throw "超时参数无效"
 }
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ("mpss-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 

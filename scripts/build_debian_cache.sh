@@ -30,6 +30,16 @@ DATA_FILESYSTEM_SIZE=1928310784
 DATA_UUID="89090000-0000-4000-8000-000000000029"
 DATA_HASH_SEED="89090000-0000-4000-8000-000000000030"
 DATA_LABEL="ufi210-data"
+SYSTEM_PARTITION_SECTORS=2516584
+CACHE_PARTITION_SECTORS=524288
+USERDATA_PARTITION_SECTORS=3766239
+SYSTEM_PARTITION_START=461920
+CACHE_PARTITION_START=3044040
+USERDATA_PARTITION_START=3803136
+LARGE_ROOTFS_SECTORS=6807111
+LARGE_ROOTFS_SIZE=3485240832
+LARGE_ROOTFS_FILESYSTEM_SIZE=3485237248
+LARGE_ROOTFS_TABLE="0 2516584 linear PARTLABEL=system 0;2516584 524288 linear PARTLABEL=cache 0;3040872 3766239 linear PARTLABEL=userdata 0"
 PROJECT_SOURCE_DATE_EPOCH=1781860238
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$PROJECT_SOURCE_DATE_EPOCH}"
 case "$TARGET_PARTITION" in
@@ -38,15 +48,33 @@ case "$TARGET_PARTITION" in
         ROOTFS_UUID="89090000-0000-4000-8000-000000000023"
         ROOTFS_HASH_SEED="89090000-0000-4000-8000-000000000024"
         ROOTFS_AUTO_GROW=disabled
+        ROOTFS_DEVICE="PARTLABEL=cache"
+        ROOTFS_LABEL="debian-cache"
+        BOOT_ROOT_ARGUMENT="PARTLABEL=cache"
+        ROOTFS_IMAGE_SIZE=$((IMAGE_SIZE_MB * 1048576))
         ;;
     system)
         TARGET_PARTITION_SIZE=1288491008
         ROOTFS_UUID="89090000-0000-4000-8000-000000000021"
         ROOTFS_HASH_SEED="89090000-0000-4000-8000-000000000022"
         ROOTFS_AUTO_GROW=enabled
+        ROOTFS_DEVICE="PARTLABEL=system"
+        ROOTFS_LABEL="debian-system"
+        BOOT_ROOT_ARGUMENT="PARTLABEL=system"
+        ROOTFS_IMAGE_SIZE=$((IMAGE_SIZE_MB * 1048576))
+        ;;
+    large-rootfs)
+        TARGET_PARTITION_SIZE=$LARGE_ROOTFS_SIZE
+        ROOTFS_UUID="89090000-0000-4000-8000-000000000031"
+        ROOTFS_HASH_SEED="89090000-0000-4000-8000-000000000032"
+        ROOTFS_AUTO_GROW=disabled
+        ROOTFS_DEVICE="/dev/mapper/ufi210-root"
+        ROOTFS_LABEL="ufi210-root"
+        BOOT_ROOT_ARGUMENT="/dev/mapper/ufi210-root"
+        ROOTFS_IMAGE_SIZE=$LARGE_ROOTFS_FILESYSTEM_SIZE
         ;;
     *)
-        printf '错误：TARGET_PARTITION 只允许 cache 或 system\n' >&2
+        printf '错误：TARGET_PARTITION 只允许 cache、system 或 large-rootfs\n' >&2
         exit 1
         ;;
 esac
@@ -83,6 +111,15 @@ ROOTFS="$BUILD_DIR/rootfs-armhf"
 REGULATORY_DB="$ROOTFS/usr/lib/firmware/regulatory.db-upstream"
 REGULATORY_DB_SIGNATURE="$ROOTFS/usr/lib/firmware/regulatory.db.p7s-upstream"
 IMAGE="$OUT_DIR/debian-${SUITE}-armhf-${TARGET_PARTITION}.ext4"
+ROOTFS_SYSTEM_IMAGE=""
+ROOTFS_CACHE_IMAGE=""
+ROOTFS_USERDATA_IMAGE=""
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    IMAGE="$BUILD_DIR/debian-${SUITE}-armhf-${TARGET_PARTITION}.ext4"
+    ROOTFS_SYSTEM_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-system.img"
+    ROOTFS_CACHE_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-cache.img"
+    ROOTFS_USERDATA_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-userdata.img"
+fi
 DATA_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-data.ext4"
 BOOT_IMAGE="$OUT_DIR/boot-debian-${TARGET_PARTITION}.img"
 ROOTFS_TARBALL="$OUT_DIR/debian-${SUITE}-armhf-${TARGET_PARTITION}-rootfs.tar.xz"
@@ -142,7 +179,7 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || die "缺少命令：$1"
 }
 
-for command_name in arm-linux-gnueabihf-gcc awk chroot debootstrap debugfs depmod du dumpe2fs e2fsck file gpgv grep mkfs.ext4 openssl python3 qemu-arm-static realpath sed sha256sum sort stat tar touch truncate tune2fs wget xz; do
+for command_name in arm-linux-gnueabihf-gcc awk cat chroot dd debootstrap debugfs depmod du dumpe2fs e2fsck file gpgv grep mkfs.ext4 openssl python3 qemu-arm-static realpath sed sha256sum sort stat tar touch truncate tune2fs wget xz; do
     require_command "$command_name"
 done
 for required in "$KERNEL" "$DTB" "$MODULES" "$INITRAMFS_BUILD_SCRIPT" "$INODE_TIME_TOOL" "$INITRAMFS_INIT" \
@@ -172,8 +209,9 @@ fi
 [[ -s "$DEBIAN_KEYRING" ]] \
     || die "缺少 Debian archive keyring：$DEBIAN_KEYRING；请先运行 scripts/install_debian_bookworm_keyring.sh"
 [[ "$IMAGE_SIZE_MB" =~ ^[0-9]+$ ]] || die "IMAGE_SIZE_MB 必须是整数"
-(( IMAGE_SIZE_MB > 0 && IMAGE_SIZE_MB * 1048576 < TARGET_PARTITION_SIZE )) \
-    || die "${TARGET_PARTITION} 镜像必须小于目标分区 $TARGET_PARTITION_SIZE 字节"
+(( IMAGE_SIZE_MB > 0 )) || die "IMAGE_SIZE_MB 必须大于 0"
+(( ROOTFS_IMAGE_SIZE < TARGET_PARTITION_SIZE )) \
+    || die "${TARGET_PARTITION} 镜像必须小于目标设备 $TARGET_PARTITION_SIZE 字节"
 [[ "$DATA_IMAGE_SIZE_MB" =~ ^[0-9]+$ ]] || die "DATA_IMAGE_SIZE_MB 必须是整数"
 (( DATA_IMAGE_SIZE_MB > 0 && DATA_IMAGE_SIZE_MB * 1048576 < DATA_PARTITION_SIZE )) \
     || die "data 镜像必须小于 userdata 分区 $DATA_PARTITION_SIZE 字节"
@@ -218,7 +256,18 @@ mpss_firmware_sha256="$(
 )"
 keyring_sha256="$(sha256sum "$DEBIAN_KEYRING" | awk '{print $1}')"
 
-if [[ "$FORCE" != "1" && -s "$IMAGE" && -s "$BOOT_IMAGE" && -s "$INITRAMFS" && -s "$QCDT" \
+rootfs_artifacts_present=0
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    if [[ -s "$ROOTFS_SYSTEM_IMAGE" && -s "$ROOTFS_CACHE_IMAGE" \
+        && -s "$ROOTFS_USERDATA_IMAGE" ]]; then
+        rootfs_artifacts_present=1
+    fi
+elif [[ -s "$IMAGE" ]]; then
+    rootfs_artifacts_present=1
+fi
+
+if [[ "$FORCE" != "1" && "$rootfs_artifacts_present" == 1 \
+    && -s "$BOOT_IMAGE" && -s "$INITRAMFS" && -s "$QCDT" \
     && -s "$WCNSS_MANIFEST" && -s "$MPSS_MANIFEST" && -f "$MANIFEST" ]] \
     && grep -qx "build_script_sha256=$script_sha256" "$MANIFEST" \
     && grep -qx "kernel_sha256=$kernel_sha256" "$MANIFEST" \
@@ -257,9 +306,18 @@ if [[ "$FORCE" != "1" && -s "$IMAGE" && -s "$BOOT_IMAGE" && -s "$INITRAMFS" && -
     && grep -qx "target_partition_bytes=$TARGET_PARTITION_SIZE" "$MANIFEST" \
     && grep -qx "rootfs_auto_grow=$ROOTFS_AUTO_GROW" "$MANIFEST" \
     && grep -qx "root_password=$ROOT_PASSWORD" "$MANIFEST" \
-    && grep -qx "rootfs_image_bytes=$((IMAGE_SIZE_MB * 1048576))" "$MANIFEST" \
+    && grep -qx "rootfs_image_bytes=$ROOTFS_IMAGE_SIZE" "$MANIFEST" \
     && grep -qx "rootfs_uuid=$ROOTFS_UUID" "$MANIFEST" \
     && grep -qx "rootfs_hash_seed=$ROOTFS_HASH_SEED" "$MANIFEST" \
+    && grep -qx "rootfs_device=$ROOTFS_DEVICE" "$MANIFEST" \
+    && grep -qx "rootfs_label=$ROOTFS_LABEL" "$MANIFEST" \
+    && { [[ "$TARGET_PARTITION" != large-rootfs ]] \
+        || { grep -qx "storage_layout=dm-linear-system-cache-userdata" "$MANIFEST" \
+            && grep -qx "dm_total_sectors=$LARGE_ROOTFS_SECTORS" "$MANIFEST" \
+            && grep -qx "dm_total_bytes=$LARGE_ROOTFS_SIZE" "$MANIFEST" \
+            && grep -qx "dm_filesystem_bytes=$LARGE_ROOTFS_FILESYSTEM_SIZE" "$MANIFEST" \
+            && grep -qx "dm_table=$LARGE_ROOTFS_TABLE" "$MANIFEST" \
+            && grep -qx "rootfs_segments=complete-prebuilt-filesystem" "$MANIFEST"; }; } \
     && { [[ "$TARGET_PARTITION" != system ]] \
         || { [[ -s "$DATA_IMAGE" ]] \
             && grep -qx "data_partition=userdata" "$MANIFEST" \
@@ -273,13 +331,34 @@ if [[ "$FORCE" != "1" && -s "$IMAGE" && -s "$BOOT_IMAGE" && -s "$INITRAMFS" && -
     image_recorded="$(sed -n 's/^rootfs_image_sha256=//p' "$MANIFEST")"
     boot_recorded="$(sed -n 's/^boot_image_sha256=//p' "$MANIFEST")"
     initramfs_recorded="$(sed -n 's/^initramfs_sha256=//p' "$MANIFEST")"
+    rootfs_matches=1
     data_matches=1
+    if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+        for segment_spec in \
+            "rootfs_system_image:$ROOTFS_SYSTEM_IMAGE" \
+            "rootfs_cache_image:$ROOTFS_CACHE_IMAGE" \
+            "rootfs_userdata_image:$ROOTFS_USERDATA_IMAGE"; do
+            segment_key="${segment_spec%%:*}"
+            segment_path="${segment_spec#*:}"
+            segment_recorded="$(sed -n "s/^${segment_key}_sha256=//p" "$MANIFEST")"
+            segment_bytes_recorded="$(sed -n "s/^${segment_key}_bytes=//p" "$MANIFEST")"
+            [[ "$segment_recorded" == "$(sha256sum "$segment_path" | awk '{print $1}')" \
+                && "$segment_bytes_recorded" == "$(stat -c %s "$segment_path")" ]] \
+                || rootfs_matches=0
+        done
+        logical_rootfs_hash="$(cat "$ROOTFS_SYSTEM_IMAGE" "$ROOTFS_CACHE_IMAGE" \
+            "$ROOTFS_USERDATA_IMAGE" | sha256sum | awk '{print $1}')"
+        [[ "$image_recorded" == "$logical_rootfs_hash" ]] || rootfs_matches=0
+    else
+        [[ "$image_recorded" == "$(sha256sum "$IMAGE" | awk '{print $1}')" ]] \
+            || rootfs_matches=0
+    fi
     if [[ "$TARGET_PARTITION" == system ]]; then
         data_recorded="$(sed -n 's/^data_image_sha256=//p' "$MANIFEST")"
         [[ "$data_recorded" == "$(sha256sum "$DATA_IMAGE" | awk '{print $1}')" ]] \
             || data_matches=0
     fi
-    if [[ "$image_recorded" == "$(sha256sum "$IMAGE" | awk '{print $1}')" \
+    if [[ "$rootfs_matches" == 1 \
         && "$boot_recorded" == "$(sha256sum "$BOOT_IMAGE" | awk '{print $1}')" \
         && "$initramfs_recorded" == "$(sha256sum "$INITRAMFS" | awk '{print $1}')" \
         && "$data_matches" == 1 ]]; then
@@ -321,7 +400,7 @@ done
 EOF
 chmod 0755 "$retry_bin/wget"
 
-base_packages="systemd-sysv,udev,dbus,kmod,busybox-static,openssh-server,iproute2,netbase,iputils-ping,dnsmasq,ca-certificates,curl,procps,util-linux,e2fsprogs"
+base_packages="systemd-sysv,udev,dbus,kmod,busybox-static,openssh-server,iproute2,netbase,iputils-ping,dnsmasq,ca-certificates,curl,procps,util-linux,e2fsprogs,dmsetup"
 log "debootstrap Debian $SUITE armhf 最小 rootfs"
 PATH="$retry_bin:$PATH" debootstrap \
     --foreign \
@@ -405,7 +484,7 @@ if [[ "$ROOTFS_AUTO_GROW" == enabled ]]; then
     root_mount_options+=,x-systemd.growfs
 fi
 cat > "$ROOTFS/etc/fstab" <<EOF
-PARTLABEL=$TARGET_PARTITION / ext4 $root_mount_options 0 1
+$ROOTFS_DEVICE / ext4 $root_mount_options 0 1
 EOF
 if [[ "$TARGET_PARTITION" == system ]]; then
     cat >> "$ROOTFS/etc/fstab" <<'EOF'
@@ -453,9 +532,11 @@ mkdir -p \
     "$ROOTFS/etc/NetworkManager/dispatcher.d" \
     "$ROOTFS/etc/NetworkManager/conf.d" \
     "$ROOTFS/etc/NetworkManager/system-connections" \
-    "$ROOTFS/data" \
     "$ROOTFS/firmware" \
     "$ROOTFS/persist"
+if [[ "$TARGET_PARTITION" == system ]]; then
+    mkdir -p "$ROOTFS/data"
+fi
 install -m 0755 "$USB_GADGET_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-gadget"
 install -m 0755 "$USB_WATCHDOG_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-watchdog"
 install -m 0755 "$WCNSS_START_SCRIPT" "$ROOTFS/usr/sbin/zu02-wcnss-start"
@@ -896,13 +977,13 @@ rm -f "$ROOTFS/var/lib/dbus/machine-id"
 find "$ROOTFS" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
 
 used_mb="$(du -sm "$ROOTFS" | awk '{print $1}')"
-(( used_mb + 20 < IMAGE_SIZE_MB )) \
-    || die "rootfs 已使用 ${used_mb} MiB，无法安全放入 ${IMAGE_SIZE_MB} MiB 镜像"
+(( (used_mb + 20) * 1048576 < ROOTFS_IMAGE_SIZE )) \
+    || die "rootfs 已使用 ${used_mb} MiB，无法安全放入 $ROOTFS_IMAGE_SIZE 字节镜像"
 
-log "生成 ${IMAGE_SIZE_MB} MiB ${TARGET_PARTITION} ext4 镜像（rootfs 已用 ${used_mb} MiB）"
+log "生成 $ROOTFS_IMAGE_SIZE 字节 ${TARGET_PARTITION} ext4 镜像（rootfs 已用 ${used_mb} MiB）"
 rm -f "$IMAGE"
-truncate -s "${IMAGE_SIZE_MB}M" "$IMAGE"
-mkfs.ext4 -q -F -m 0 -L "debian-$TARGET_PARTITION" \
+truncate -s "$ROOTFS_IMAGE_SIZE" "$IMAGE"
+mkfs.ext4 -q -F -m 0 -L "$ROOTFS_LABEL" \
     -U "$ROOTFS_UUID" \
     -E "lazy_itable_init=0,lazy_journal_init=0,hash_seed=$ROOTFS_HASH_SEED" \
     -d "$ROOTFS" "$IMAGE"
@@ -922,6 +1003,38 @@ rootfs_free_bytes=$((rootfs_block_size * rootfs_free_blocks))
 image_bytes="$(stat -c %s "$IMAGE")"
 (( image_bytes < TARGET_PARTITION_SIZE )) \
     || die "rootfs 镜像不小于目标 ${TARGET_PARTITION} 分区"
+
+rootfs_system_image_bytes=0
+rootfs_cache_image_bytes=0
+rootfs_userdata_image_bytes=0
+rootfs_system_image_sha256=""
+rootfs_cache_image_sha256=""
+rootfs_userdata_image_sha256=""
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    log "按 system、cache、userdata 边界切分完整大根卷镜像"
+    rm -f "$ROOTFS_SYSTEM_IMAGE" "$ROOTFS_CACHE_IMAGE" "$ROOTFS_USERDATA_IMAGE"
+    dd if="$IMAGE" of="$ROOTFS_SYSTEM_IMAGE" bs=512 count="$SYSTEM_PARTITION_SECTORS" \
+        iflag=fullblock conv=sparse status=none
+    dd if="$IMAGE" of="$ROOTFS_CACHE_IMAGE" bs=512 \
+        skip="$SYSTEM_PARTITION_SECTORS" count="$CACHE_PARTITION_SECTORS" \
+        iflag=fullblock conv=sparse status=none
+    dd if="$IMAGE" of="$ROOTFS_USERDATA_IMAGE" bs=512 \
+        skip=$((SYSTEM_PARTITION_SECTORS + CACHE_PARTITION_SECTORS)) \
+        count=$((USERDATA_PARTITION_SECTORS - 7)) \
+        iflag=fullblock conv=sparse status=none
+    rootfs_system_image_bytes="$(stat -c %s "$ROOTFS_SYSTEM_IMAGE")"
+    rootfs_cache_image_bytes="$(stat -c %s "$ROOTFS_CACHE_IMAGE")"
+    rootfs_userdata_image_bytes="$(stat -c %s "$ROOTFS_USERDATA_IMAGE")"
+    (( rootfs_system_image_bytes == SYSTEM_PARTITION_SECTORS * 512 )) \
+        || die "system 根卷分段大小错误"
+    (( rootfs_cache_image_bytes == CACHE_PARTITION_SECTORS * 512 )) \
+        || die "cache 根卷分段大小错误"
+    (( rootfs_userdata_image_bytes == LARGE_ROOTFS_FILESYSTEM_SIZE - rootfs_system_image_bytes - rootfs_cache_image_bytes )) \
+        || die "userdata 根卷分段大小错误"
+    rootfs_system_image_sha256="$(sha256sum "$ROOTFS_SYSTEM_IMAGE" | awk '{print $1}')"
+    rootfs_cache_image_sha256="$(sha256sum "$ROOTFS_CACHE_IMAGE" | awk '{print $1}')"
+    rootfs_userdata_image_sha256="$(sha256sum "$ROOTFS_USERDATA_IMAGE" | awk '{print $1}')"
+fi
 
 data_image_bytes=0
 data_image_sha256=""
@@ -964,7 +1077,7 @@ tar --sort=name --format=posix \
     -C "$ROOTFS" -cf - . \
     | xz -T1 -9 > "$ROOTFS_TARBALL"
 
-cmdline="console=ttyMSM0,115200n8 console=tty0 earlycon panic=0 loglevel=8 ignore_loglevel clk_ignore_unused pd_ignore_unused reboot=warm root=PARTLABEL=$TARGET_PARTITION rootfstype=ext4 rw rootwait"
+cmdline="console=ttyMSM0,115200n8 console=tty0 earlycon panic=0 loglevel=8 ignore_loglevel clk_ignore_unused pd_ignore_unused reboot=warm root=$BOOT_ROOT_ARGUMENT rootfstype=ext4 rw rootwait"
 log "生成 Debian ${TARGET_PARTITION} boot image"
 python3 "$PROJECT_ROOT/scripts/repack_android_boot.py" \
     --original "$REFERENCE_BOOT" \
@@ -997,6 +1110,8 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'source_date_epoch=%s\n' "$SOURCE_DATE_EPOCH"
     printf 'rootfs_uuid=%s\n' "$ROOTFS_UUID"
     printf 'rootfs_hash_seed=%s\n' "$ROOTFS_HASH_SEED"
+    printf 'rootfs_label=%s\n' "$ROOTFS_LABEL"
+    printf 'rootfs_device=%s\n' "$ROOTFS_DEVICE"
     printf 'rootfs_inode_time_epoch=%s\n' "$SOURCE_DATE_EPOCH"
     printf 'build_script_sha256=%s\n' "$script_sha256"
     printf 'kernel_sha256=%s\n' "$kernel_sha256"
@@ -1043,6 +1158,33 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'target_partition=%s\n' "$TARGET_PARTITION"
     printf 'target_partition_bytes=%s\n' "$TARGET_PARTITION_SIZE"
     printf 'rootfs_auto_grow=%s\n' "$ROOTFS_AUTO_GROW"
+    if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+        printf 'storage_layout=dm-linear-system-cache-userdata\n'
+        printf 'dm_name=ufi210-root\n'
+        printf 'dm_total_sectors=%s\n' "$LARGE_ROOTFS_SECTORS"
+        printf 'dm_total_bytes=%s\n' "$LARGE_ROOTFS_SIZE"
+        printf 'dm_filesystem_bytes=%s\n' "$LARGE_ROOTFS_FILESYSTEM_SIZE"
+        printf 'dm_system_sectors=%s\n' "$SYSTEM_PARTITION_SECTORS"
+        printf 'dm_cache_sectors=%s\n' "$CACHE_PARTITION_SECTORS"
+        printf 'dm_userdata_sectors=%s\n' "$USERDATA_PARTITION_SECTORS"
+        printf 'dm_system_start=%s\n' "$SYSTEM_PARTITION_START"
+        printf 'dm_cache_start=%s\n' "$CACHE_PARTITION_START"
+        printf 'dm_userdata_start=%s\n' "$USERDATA_PARTITION_START"
+        printf 'dm_table=%s\n' "$LARGE_ROOTFS_TABLE"
+        printf 'rootfs_system_image=debian-%s-armhf-large-rootfs-system.img\n' "$SUITE"
+        printf 'rootfs_system_image_bytes=%s\n' "$rootfs_system_image_bytes"
+        printf 'rootfs_system_image_sha256=%s\n' "$rootfs_system_image_sha256"
+        printf 'rootfs_cache_image=debian-%s-armhf-large-rootfs-cache.img\n' "$SUITE"
+        printf 'rootfs_cache_image_bytes=%s\n' "$rootfs_cache_image_bytes"
+        printf 'rootfs_cache_image_sha256=%s\n' "$rootfs_cache_image_sha256"
+        printf 'rootfs_userdata_image=debian-%s-armhf-large-rootfs-userdata.img\n' "$SUITE"
+        printf 'rootfs_userdata_image_bytes=%s\n' "$rootfs_userdata_image_bytes"
+        printf 'rootfs_userdata_image_sha256=%s\n' "$rootfs_userdata_image_sha256"
+        printf 'rootfs_segments=complete-prebuilt-filesystem\n'
+        printf 'gpt_changes=none\n'
+        printf 'cache_previous_contents=erased-by-installer\n'
+        printf 'userdata_previous_contents=erased-by-installer\n'
+    fi
     if [[ "$TARGET_PARTITION" == system ]]; then
         printf 'data_partition=userdata\n'
         printf 'data_partition_bytes=%s\n' "$DATA_PARTITION_SIZE"
@@ -1101,6 +1243,12 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
 } > "$MANIFEST"
 
 log "完成：$IMAGE"
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    log "完成：$ROOTFS_SYSTEM_IMAGE"
+    log "完成：$ROOTFS_CACHE_IMAGE"
+    log "完成：$ROOTFS_USERDATA_IMAGE"
+    rm -f "$IMAGE"
+fi
 if [[ "$TARGET_PARTITION" == system ]]; then
     log "完成：$DATA_IMAGE"
     log "data SHA256：$data_image_sha256"

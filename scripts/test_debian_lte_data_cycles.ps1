@@ -39,7 +39,7 @@ if (-not (Test-Path -LiteralPath $SingleTest -PathType Leaf)) {
 if ([string]::IsNullOrEmpty($CarrierUsername) -ne [string]::IsNullOrEmpty($CarrierPassword)) {
     throw "运营商用户名和密码必须同时提供或同时省略"
 }
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ("lte-data-cycles-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 

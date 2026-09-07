@@ -12,6 +12,115 @@
 - root 初始密码：`simadmin`
 - Wi-Fi AP 初始密码：`simadmin`
 
+## large-rootfs 分支目标
+
+在不直接复用其他平台分区表的前提下，为 `zu02-dw01` 设计 MSM8909 专用的大根分区
+Debian 固件。最终用户通过正常 `apt install` 写入同一个根文件系统，不再需要理解 Android
+`system`/`userdata` 的容量边界。必须保留启动、基带、无线校准和设备身份所需分区，并提供
+可核验的 fastboot 安装与设备专属 9008 恢复资料。大根分区采用保留原 GPT 的
+`dm-linear` 方案，不移动夹在数据区之间的 `persist`、recovery、devinfo、oem 等分区。
+
+硬性约束：
+
+- 禁止使用其他设备或其他 SoC 的 GPT、bootloader、校准数据和设备身份数据。
+- 禁止把闭源 modem 固件、persist、modemst1/2 或 fsg 打入公开发布包。
+- 禁止在 GPT 解析、备份、恢复和静态验收门槛通过前写入真机分区表。
+- 禁止为了扩大 rootfs 覆盖 sbl1、aboot、rpm、tz、modem、modemst1/2、fsg、persist 或 boot。
+- 禁止使用 SIM 蜂窝数据流量进行测试；蜂窝验收只允许无数据连接的注册和接口检查。
+- 所有安装器必须核对硬件身份、整盘扇区数和原 GPT 几何，并要求独立的
+  破坏性操作确认。
+
+### LR0：工作区与分支基线
+
+- [x] 清理 `out` 中旧 RC、历史测试镜像、重复解包目录和可重建中间产物。
+- [x] 保留并复核 `m8-storage-rc2` 的四个发布归档及 `SHA256SUMS`。
+- [x] 从 `main@5822600f65e03c55f8df60c621b342561ce21ae6` 创建 `large-rootfs` 分支。
+- [x] 将本分支修改同步到群晖 `/work`，并逐文件核对 SHA256。
+
+### LR1：真机 GPT 与恢复基线
+
+- [x] 只读导出当前 eMMC 的保护 MBR、主 GPT、备 GPT 和完整分区几何。
+- [x] 实现 GPT 解析器，校验 header CRC32、partition array CRC32、主备 GUID 和边界一致性。
+- [x] 将解析结果与 `/sys/class/block`、`lsblk` 和 fastboot `partition-size` 交叉核对。
+- [x] 对启动链、modem、modemst1/2、fsg、persist、boot 和设备身份相关分区建立保留清单。
+- [x] 为当前设备生成带 SHA256 的 GPT/关键分区私有恢复集合，确认不进入 Git。
+- [ ] 验证可用的 MSM8909 Firehose programmer，并完成不写存储的 9008 握手/读取能力检查。
+- [x] 修复 Qualcomm 固定 32 扇区备 GPT 区域生成规则；生成结果与真机回读逐字节一致。
+- [x] 生成并静态验证恢复原 GPT、关键分区和已知可启动布局的命令与操作顺序。
+
+**刷写门槛 A：以上项目全部完成前，禁止执行 GPT 写入。**
+
+### LR2：大根分区布局设计
+
+- [x] 比较“重排小分区后单一 rootfs”“保留 GPT + device-mapper 线性卷”等方案的启动复杂度、
+  fastboot 可恢复性、断电一致性和可用容量。
+- [x] 选择保留原 GPT 的 `dm-linear` 方案，不移动或删除任何原厂分区。
+- [x] 根卷按固定顺序拼接 `system + cache + userdata`，使用固定文件系统 UUID 和可复现 ext4 参数。
+- [x] initramfs 按 PARTNAME 查找三个底层分区并核对精确扇区数，任一不匹配即进入救援模式。
+- [x] 实现确定性 dm table、布局清单和单元测试；禁止接受设备节点编号或容量漂移。
+- [x] 计算并记录整盘、rootfs、保留分区、GPT 开销及未分配空间的精确字节数。
+- [x] 明确升级策略：旧布局进入大根卷必须重装三个分段；只有明确标注的 boot-only 更新可保留 rootfs。
+
+**刷写门槛 B：dm table 测试、主备 GPT CRC 和布局审计全部通过前，禁止清空 cache/userdata。**
+
+### LR3：大 rootfs 构建与安装器
+
+- [x] 将 Debian 构建改为单一 rootfs，不再生成独立 userdata `/data` 镜像。
+- [x] 构建时直接生成最终大小 ext4；普通 APT、`/usr`、`/var`、`/opt` 和 `/home` 均使用
+  同一文件系统，首启不执行在线扩容。
+- [x] initramfs、内核 cmdline、fstab、manifest 和验证器使用 `/dev/mapper/ufi210-root`。
+- [x] Windows fastboot 安装器先导出并验证设备专属恢复资料，再清空并写入
+  system/cache/userdata 三个 rootfs 分段，最后写 boot，全程不写 GPT。
+- [x] 安装器防止型号、容量、完整 GPT 几何、镜像哈希或恢复资料任一不匹配时继续。
+- [x] 安装过程不依赖设备 Wi-Fi；只使用 USB fastboot、RNDIS/ADB/SSH/ACM。
+- [x] 构建安全 fastboot 回滚脚本：要求显式确认、逐文件 SHA256 清单和分区尺寸匹配，按
+  system/cache/userdata/recovery/boot 恢复 Android，且不触碰 GPT；9008 路径仍由设备专属
+  rawprogram 和 Firehose 无写入握手门槛保护。
+
+### LR4：离线与 RAM 启动验收
+
+- [x] 对 rootfs、boot、dm table、恢复包和安装包执行安全解包、边界、哈希和隐私审计；
+  `verify_debian_large_rootfs.sh`、只读探测 boot 自解析、7 项安装器故障注入和公开归档复审均通过。
+- [ ] 在不写 GPT 的条件下完成内核/initramfs RAM 启动，验证新布局识别和失败回退路径。
+- [x] 离线模拟错误磁盘容量、错误 GPT CRC、缺失备份、错误 manifest、镜像哈希错误和镜像截断，
+  安装器均在首次 fastboot 写操作前 fail closed。
+- [ ] 在真机安装时演练写入中止后的 fastboot/9008 恢复路径。
+- [x] 完成两次独立构建并逐字节比较 boot、rootfs；固定 Debian Snapshot 的对应源码归档
+  通过两次确定性复核，公开 RC 的四个归档通过外层哈希和解包复审。
+
+**刷写门槛 C：恢复集合、安装器故障注入、RAM 启动和双构建一致性全部通过后，才允许首次
+清空 cache/userdata 并持久写入大根卷。**
+
+### LR5：真机持久部署与回归
+
+- [ ] 首次破坏性安装前再次回读主/备 GPT 和关键分区哈希，并与恢复集合核对。
+- [ ] 在一次受控 fastboot 会话中写入 system rootfs、清空 cache/userdata 并写 boot，
+  不写 GPT、不在中间盲目重启。
+- [ ] 首启后验证 `/` 的块设备、总容量、预构建 ext4 大小、可写性、TRIM 和无独立 `/data` 依赖。
+- [ ] 使用 APT 安装/卸载测试包，证明软件和数据库空间由大根分区统一承担。
+- [ ] 验证普通 reboot、进入 fastboot、至少 5 次重启循环和真实断电冷启动。
+- [ ] 回归 USB RNDIS、TCP ADB、SSH、ACM、Wi-Fi、WCNSS、MPSS、SIM 和 ModemManager。
+- [ ] 蜂窝仅验证未创建用户数据 bearer、`wwan0` 无 IP/路由；不得产生 SIM 数据流量。
+- [ ] 完成 20 分钟无蜂窝流量稳定性测试和 10 分钟受控热测试。
+- [ ] 回读主/备 GPT、boot 和关键保留分区，确认 CRC、边界和哈希未漂移。
+- [ ] 至少完成一次从目标大分区布局恢复到已知可启动布局的受控演练。
+
+### LR6：发版
+
+- [x] 更新中文 README、安装、恢复、硬件边界、版本说明和风险提示。
+- [x] 发布包只包含通用 boot/rootfs、安装器、许可证和用户文档；设备专属
+  modem、persist、modemst、fsg、备份与身份信息不得进入归档。
+- [x] 完成项目源码、Linux 对应源码、Debian 对应源码、许可证、隐私和禁用词审计；公开
+  RC 解包后含 111 个项目源码文件、93,129 个 Linux 源码文件和 437 个 Debian 对应源码文件。
+  Android 回滚脚本仅保留在源码工程中，用户包不携带任何设备专属恢复输入。
+- [x] GitHub Actions 配置、Shell/PowerShell/Python 测试集和公开 RC 归档 digest 已通过当前
+  工作区与群晖容器静态检查；真机验证完成前仍保持候选状态。
+- [ ] 创建版本提交、签发候选标签并发布 GitHub prerelease。
+
+完成定义：发布候选能够从受支持的 `zu02-dw01` 原布局安全安装；普通重启和断电始终自主进入
+Debian；`df /` 显示经审计的大根分区容量；APT 无需特殊路径即可使用该空间；同时存在经过
+验证的设备专属恢复路径，并且全程未使用蜂窝数据流量。
+
 ## M0：硬件与恢复基线
 
 - [x] 确认 SoC ID 245、MSM8909、PM8909、QRD 1.0、subtype 0。

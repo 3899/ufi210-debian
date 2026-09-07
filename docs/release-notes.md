@@ -9,15 +9,14 @@
 ## 系统内容
 
 - 原厂 aboot 通过 QCDT v3 直接启动 DW01 主线 DTB，无需两级 RAM 启动。
-- Debian rootfs 使用 1,288,491,008 字节的 system 分区，独立 `/data` 使用
-  1,928,314,368 字节的 userdata 分区。
-- boot、system 和 userdata 均持久写入；断电或普通重启不再返回 Android。
-- rootfs 首次启动通过 `x-systemd.growfs` 扩展到完整 system 分区。
-- `/data` 首次启动扩展到完整 userdata 分区，预建 `apps`、`backups` 和 `srv` 目录。
+- Debian rootfs 通过 `dm-linear` 顺序使用 system、cache 和 userdata，ext4 总容量为
+  3,485,237,248 字节（约 3.25 GiB）。
+- boot、system、cache 和 userdata 均持久写入；断电或普通重启不再返回 Android。
+- 根文件系统在构建时已达到最终大小，不依赖首启扩容，也没有独立 `/data`。
 - 启用 `noatime` 和每周 `fstrim.timer`，不默认使用 eMMC swap。
 - boot cmdline 固定 `reboot=warm`，避免无电池设备 cold reboot 后无法自行上电。
 - 内核包含 MSM8909 IMEM reboot-mode，rootfs 提供 `/system/bin/reboot` 的 `RESTART2` 兼容入口。
-- Windows 安装器要求显式确认擦除 userdata，在同一次 fastboot 会话连续写 system、userdata 和
+- Windows 安装器要求显式确认擦除 cache 和 userdata，在同一次 fastboot 会话连续写 system、cache、userdata 和
   boot，不在中途重启，boot 最后写入。
 - 安装后回读 boot 前缀 SHA256，并用不同 boot_id 验证普通重启确实发生。
 
@@ -25,14 +24,15 @@
 
 - Debian 12 Bookworm armhf 与 Linux `7.0.0-msm8909`。
 - QCDT v3：30 条 MSM8909 匹配记录，全部指向唯一 DW01 DTB。
-- 持久 system rootfs、首次启动自动扩容、普通 warm reboot 和真实断电冷启动。
+- 持久 Debian rootfs、普通 warm reboot 和真实断电冷启动。
 - 固定 RNDIS `192.168.68.1` 与 ACM、RNDIS 上的 TCP ADB 和 SSH；RNDIS MAC 按设备稳定派生。
 - NetworkManager、完整 `nmcli`、简体中文 `nmtui`。
 - WCNSS/WCN36XX、Wi-Fi 扫描、WPA2 AP 与 DHCP。
 - MPSS、QRTR、只读 RMTFS、BAM-DMUX 和 ModemManager。
 - USB-only 管理防火墙、NetworkManager nftables NAT。
 - 75°C 被动降频阈值和 cpufreq cooling。
-- system、data 和 boot 两次独立构建逐字节一致；端到端持久安装和 boot 回读通过。
+- 前一版 system/data/boot 候选已完成两次独立构建、端到端持久安装和 boot 回读；本版大根卷
+  另行执行三段镜像的逐字节复现和真机回归。
 - 5 次普通重启和 10 次 TCP `adbd` 热重启通过；普通重启均无需拔插自动返回 Debian。
 - 20 分钟综合监控共 2384 个 RNDIS ping 样本零失败，最高 60°C；10 分钟四核
   受控负载最高 76°C，cooling state 最高 7。
@@ -46,9 +46,9 @@
 
 ## 写入边界
 
-- 写入：`boot`、`system`、`userdata`。
-- 不写入：GPT、aboot、recovery、cache、modem、modemst1/2、fsg、persist。
-- 原 Android system 和 userdata 被覆盖；恢复 Android 必须使用本机备份。
+- 写入：`boot`、`system`、`cache`、`userdata`。
+- 不写入：GPT、aboot、recovery、modem、modemst1/2、fsg、persist。
+- 原 Android system、cache 和 userdata 被覆盖；恢复 Android 必须使用本机备份。
 - 闭源 firmware 和 WLAN 校准 NV 从设备既有分区只读使用，不进入发布包。
 
 ## 已知限制

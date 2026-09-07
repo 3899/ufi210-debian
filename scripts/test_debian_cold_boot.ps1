@@ -17,7 +17,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $Adb = Join-Path $ProjectRoot "adb.exe"
-$ManifestPath = Join-Path $ProjectRoot "out\mainline\debian-system\BUILD-MANIFEST.txt"
+$ManifestPath = Join-Path $ProjectRoot "out\mainline\debian-large-rootfs\BUILD-MANIFEST.txt"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 $ActiveServices = @(
     "zu02-firewall", "zu02-usb-gadget", "adbd", "zu02-usb-watchdog.timer",
@@ -34,7 +34,7 @@ if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
 }
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) { throw "缺少工具：adb.exe" }
 if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) {
-    throw "缺少 system 构建清单：$ManifestPath"
+    throw "缺少 large-rootfs 构建清单：$ManifestPath"
 }
 
 function Write-Utf8File {
@@ -143,22 +143,19 @@ function Get-RuntimeProbe {
 set -eu
 printf 'BOOT_ID='; cat /proc/sys/kernel/random/boot_id
 printf 'ROOT='; findmnt -nro SOURCE /
-root_blocks=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
-root_block_size=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
+printf 'ROOT_UUID='; findmnt -nro UUID /
+printf 'ROOT_OPTIONS='; findmnt -nro OPTIONS /
+root_blocks=$(dumpe2fs -h /dev/mapper/ufi210-root 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
+root_block_size=$(dumpe2fs -h /dev/mapper/ufi210-root 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
 printf 'ROOT_FS_BYTES=%s\n' "$((root_blocks * root_block_size))"
-printf 'DATA='; findmnt -nro SOURCE /data
-printf 'DATA_UUID='; findmnt -nro UUID /data
-data_blocks=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
-data_block_size=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
-printf 'DATA_FS_BYTES=%s\n' "$((data_blocks * data_block_size))"
-printf 'DATA_OPTIONS='; findmnt -nro OPTIONS /data
-for data_dir in apps backups srv; do test -d "/data/$data_dir"; done
-printf 'DATA_DIRS=ready\n'
-data_probe="/data/.ufi210-cold-boot-write-test-$$"
-printf 'ok\n' > "$data_probe"
-test "$(cat "$data_probe")" = ok
-rm -f "$data_probe"
-printf 'DATA_WRITABLE=yes\n'
+if mountpoint -q /data; then echo 'DATA_MOUNTED=yes'; else echo 'DATA_MOUNTED=no'; fi
+root_probe="/var/tmp/.ufi210-cold-boot-write-test-$$"
+printf 'ok\n' > "$root_probe"
+test "$(cat "$root_probe")" = ok
+rm -f "$root_probe"
+printf 'ROOT_WRITABLE=yes\n'
+printf 'DM_BYTES='; blockdev --getsize64 /dev/mapper/ufi210-root
+printf 'DM_LINES='; dmsetup table ufi210-root | wc -l
 printf 'FSTRIM_ENABLED='; systemctl is-enabled fstrim.timer
 printf 'KERNEL='; uname -r
 printf 'FAILED='; systemctl --failed --no-legend --plain | wc -l
@@ -184,13 +181,13 @@ function Assert-RuntimeProbe {
     param($Probe, [string]$ExpectedBootId)
     $checks = @(
         "BOOT_ID=$ExpectedBootId",
-        "ROOT=/dev/mmcblk0p21",
-        "ROOT_FS_BYTES=$($Manifest.target_partition_bytes)",
-        "DATA=/dev/mmcblk0p29",
-        "DATA_UUID=$($Manifest.data_uuid)",
-        "DATA_FS_BYTES=$($Manifest.data_filesystem_bytes)",
-        "DATA_DIRS=ready",
-        "DATA_WRITABLE=yes",
+        "ROOT=/dev/mapper/ufi210-root",
+        "ROOT_UUID=$($Manifest.rootfs_uuid)",
+        "ROOT_FS_BYTES=$($Manifest.dm_filesystem_bytes)",
+        "DATA_MOUNTED=no",
+        "ROOT_WRITABLE=yes",
+        "DM_BYTES=$($Manifest.dm_total_bytes)",
+        "DM_LINES=3",
         "FSTRIM_ENABLED=enabled",
         "KERNEL=7.0.0-msm8909",
         "FAILED=0",
@@ -206,11 +203,9 @@ function Assert-RuntimeProbe {
             throw "冷启动运行探针缺少：$check`r`n$($Probe.Text)"
         }
     }
-    if ($Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\brw\b' -or
-        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnoatime\b' -or
-        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnosuid\b' -or
-        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnodev\b') {
-        throw "冷启动后 /data 挂载选项不匹配：`r`n$($Probe.Text)"
+    if ($Probe.Text -notmatch '(?m)^ROOT_OPTIONS=.*\brw\b' -or
+        $Probe.Text -notmatch '(?m)^ROOT_OPTIONS=.*\bnoatime\b') {
+        throw "冷启动后根文件系统挂载选项不匹配：`r`n$($Probe.Text)"
     }
     $functions = @([regex]::Matches($Probe.Text, '(?m)^FUNCTION=(.+)\r?$') | ForEach-Object {
         $_.Groups[1].Value.Trim()
@@ -224,17 +219,16 @@ function Assert-RuntimeProbe {
 }
 
 $Manifest = Read-Manifest
-if ($Manifest.target_partition -ne "system" -or $Manifest.target_partition_bytes -ne "1288491008" -or
-    $Manifest.data_partition -ne "userdata" -or $Manifest.data_partition_bytes -ne "1928314368" -or
-    $Manifest.data_filesystem_bytes -ne "1928310784" -or
-    $Manifest.data_uuid -ne "89090000-0000-4000-8000-000000000029" -or
-    $Manifest.data_auto_grow -ne "enabled" -or $Manifest.fstrim -ne "weekly-systemd-timer" -or
+if ($Manifest.target_partition -ne "large-rootfs" -or $Manifest.target_partition_bytes -ne "3485240832" -or
+    $Manifest.dm_total_bytes -ne "3485240832" -or $Manifest.dm_filesystem_bytes -ne "3485237248" -or
+    $Manifest.rootfs_uuid -ne "89090000-0000-4000-8000-000000000031" -or
+    $Manifest.rootfs_auto_grow -ne "disabled" -or $Manifest.fstrim -ne "weekly-systemd-timer" -or
     $Manifest.usb_product_id -ne "0xD001" -or
     $Manifest.usb_functions -ne "rndis-acm" -or $Manifest.boot_image_sha256 -notmatch '^[0-9a-f]{64}$' -or
     $Manifest.boot_image_bytes -notmatch '^\d+$') {
-    throw "system 构建清单不满足冷启动验收条件"
+    throw "large-rootfs 构建清单不满足冷启动验收条件"
 }
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $resumed = [bool]$ResumeDirectory
 $reconnectedAt = $null
 if ($resumed) {
@@ -362,11 +356,10 @@ $summary = @(
     "rndis_identity_changed=false",
     "usb_functions=rndis-acm",
     "adb_transport=tcp-5555",
-    "root=/dev/mmcblk0p21",
-    "root_filesystem_bytes=$($Manifest.target_partition_bytes)",
-    "data=/dev/mmcblk0p29",
-    "data_filesystem_bytes=$($Manifest.data_filesystem_bytes)",
-    "data_uuid=$($Manifest.data_uuid)",
+    "root=/dev/mapper/ufi210-root",
+    "root_filesystem_bytes=$($Manifest.dm_filesystem_bytes)",
+    "root_uuid=$($Manifest.rootfs_uuid)",
+    "data_mount=none",
     "fstrim_timer=enabled",
     "boot_sha256=$($Manifest.boot_image_sha256)",
     "disconnected_at=$($disconnectedAt.ToString('o'))",

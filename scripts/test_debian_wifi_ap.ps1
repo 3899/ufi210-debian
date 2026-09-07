@@ -74,7 +74,7 @@ if ($Psk -notmatch '^[A-Za-z0-9._-]{8,63}$') { throw "测试 PSK 必须是 8 至
 if ($Channel -lt 1 -or $Channel -gt 13) { throw "2.4 GHz 测试信道必须在 1 至 13 之间" }
 if ($TransferMiB -lt 1 -or $TransferMiB -gt 64) { throw "传输测试大小必须在 1 至 64 MiB 之间" }
 
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ("wifi-ap-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 

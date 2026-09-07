@@ -37,9 +37,10 @@ RAM、电源、USB、WCNSS 和 MPSS，再为对应硬件建立独立 target。
 - Linux `7.0.0-msm8909`、Debian 12 Bookworm `armhf`、systemd。
 - Debian 官方运行时软件源、`ca-certificates` 和 `curl`。
 - 原厂 aboot 通过 QCDT v3 直接启动，无需 lk2nd。
-- Debian rootfs 持久安装到 `system`，首次启动自动扩容到完整分区。
-- Android `userdata` 被重建为独立 `/data`，首次启动自动扩容到约 1.80 GiB；根分区与数据分区
-  合计约 3.0 GiB。
+- Debian 根文件系统通过 `dm-linear` 顺序使用 `system + cache + userdata`，容量为
+  3,485,237,248 字节（约 3.25 GiB），普通 `apt install` 可直接使用全部根卷空间。
+- GPT 保持不变；构建时生成完整 ext4 后按三个物理分区边界切分，安装时原样写回并由
+  initramfs 重组为 `/dev/mapper/ufi210-root`。
 - 普通 warm reboot 无需拔插，重启后仍进入 Debian。
 - 固定 USB RNDIS 与 ACM、RNDIS 上的 TCP ADB 和 SSH；RNDIS MAC 按设备稳定派生。
 - NetworkManager、完整 `nmcli`、简体中文 `nmtui`。
@@ -47,10 +48,10 @@ RAM、电源、USB、WCNSS 和 MPSS，再为对应硬件建立独立 target。
 - MPSS、QRTR、只读 RMTFS、BAM-DMUX、ModemManager、SIM 和 LTE。
 - NetworkManager nftables NAT；SSH 22 和 ADB 5555 只允许从 `usb0` 进入。
 - CPU thermal `step_wise` 与 cpufreq cooling，板级被动降频阈值为 75°C。
-- 根分区和 `/data` 使用 `noatime`，启用每周 `fstrim.timer`，不默认使用 eMMC swap。
+- 根分区使用 `noatime`，启用每周 `fstrim.timer`，不默认使用 eMMC swap。
 
-当前 system/data 候选已完成两次独立构建逐字节一致、从旧 Debian 到新候选的端到端
-持久安装、boot 分区回读、rootfs 和 `/data` 自动扩容、5 次普通重启、10 次
+前一版分离存储候选已完成两次独立构建逐字节一致、端到端持久安装、boot 分区回读、
+5 次普通重启、10 次
 `adbd` 热重启、10 分钟四核受控负载和 20 分钟综合监控。WCNSS 扫描、
 10 次 AP/managed 切换、MPSS/SIM 枚举、LTE 注册和 QMI DMS 启动校时也已在同一候选上通过。
 真实断电冷启动、20 轮 LTE 数据连接与运营商 DNS，以及隔离下游客户端的 nftables NAT 和
@@ -58,11 +59,10 @@ NetworkManager DNS 代理回归均已通过。
 
 ## 写入边界
 
-- 安装器只持久写入 `system`、`userdata` 和 `boot`。
-- `system` 中原 Android 系统会被 Debian rootfs 覆盖。
-- `userdata` 的原 Android 数据会被永久擦除，并重建为 Debian `/data`。
+- 安装器只持久写入 `system`、`cache`、`userdata` 和 `boot`，不修改 GPT。
+- `system`、`cache` 和 `userdata` 的原内容会被永久覆盖，共同保存一个 Debian ext4 根文件系统。
 - `boot` 中写入 Linux kernel、initramfs 和唯一 DW01 DTB 的 QCDT v3。
-- GPT、aboot、recovery、cache、modem、modemst1/2、fsg 和 persist 均不写入。
+- GPT、aboot、recovery、modem、modemst1/2、fsg 和 persist 均不写入。
 - modem 与 persist 只读挂载；设备校准数据不写入、不打包、不公开哈希。
 - 断电和普通重启应直接进入 Debian；恢复 Android 必须使用设备自己的恢复资料重建 boot、system
   和 userdata，或刷入完整原厂包。
@@ -110,25 +110,26 @@ bash scripts/build_firmware.sh
 
 ```sh
 cd /work
-bash scripts/build_debian_system_reproducibly.sh
+bash scripts/build_debian_large_rootfs_reproducibly.sh
 ```
 
 正式产物位于：
 
 ```text
 out/mainline/kernel/qcom-msm8909-zu02-dw01.dtb
-out/mainline/debian-system/debian-bookworm-armhf-system.ext4
-out/mainline/debian-system/debian-bookworm-armhf-data.ext4
-out/mainline/debian-system/boot-debian-system.img
-out/mainline/debian-system/BUILD-MANIFEST.txt
-out/mainline/debian-system/REPRODUCIBILITY.txt
+out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-system.img
+out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-cache.img
+out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-userdata.img
+out/mainline/debian-large-rootfs/boot-debian-large-rootfs.img
+out/mainline/debian-large-rootfs/BUILD-MANIFEST.txt
+out/mainline/debian-large-rootfs/REPRODUCIBILITY.txt
 ```
 
 ## 静态验收
 
 ```sh
 cd /work
-bash scripts/verify_debian_system.sh
+bash scripts/verify_debian_large_rootfs.sh
 bash scripts/audit_public_release.sh workspace
 python3 -m unittest -v \
   scripts.test_analyze_bootimg \
@@ -138,7 +139,7 @@ python3 -m unittest -v \
   scripts.test_zu02_wwan_ip
 ```
 
-验收会核对三张镜像的哈希和尺寸、两个 ext4、自动扩容策略、主机名、root 密码哈希、服务、ARM ELF、
+验收会重组三张 rootfs 分段，核对完整 ext4、分段边界和哈希，并检查主机名、root 密码哈希、服务、ARM ELF、
 内核配置、DTB、QCDT、只读固件挂载、防火墙、可复现报告及公开边界。
 
 ## 安装
@@ -148,12 +149,12 @@ python3 -m unittest -v \
 `adb.exe` 和 `fastboot.exe` 或把它们放到发布包根目录。
 
 ```powershell
-.\scripts\install_debian_system.ps1 -ConfirmPersistentInstall -ConfirmEraseUserdata
+.\scripts\install_debian_large_rootfs.ps1 -ConfirmPersistentInstall -ConfirmEraseCacheAndUserdata
 ```
 
 也可双击 `install.bat`。安装器先备份完整 boot，再核对型号、SoC、分区尺寸和镜像哈希，然后在
-一次 fastboot 会话中依次写 system、擦除并写入 userdata，最后写 boot。写入后先 RAM 启动同一
-boot 验证 system 和 `/data`，再执行
+一次 fastboot 会话中依次擦除并写入 system、cache、userdata，最后写 boot。写入后先 RAM 启动同一
+boot 验证 `/dev/mapper/ufi210-root`，再执行
 普通重启并用不同 `boot_id` 验证持久启动。安装过程中不会刷一个分区后重启一次。
 
 Debian 启动后：

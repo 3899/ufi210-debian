@@ -150,17 +150,14 @@ function Get-RuntimeProbe {
 set -eu
 printf 'BOOT_ID='; cat /proc/sys/kernel/random/boot_id
 printf 'ROOT='; findmnt -nro SOURCE /
-root_blocks=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
-root_block_size=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
+printf 'ROOT_UUID='; findmnt -nro UUID /
+printf 'ROOT_OPTIONS='; findmnt -nro OPTIONS /
+root_blocks=$(dumpe2fs -h /dev/mapper/ufi210-root 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
+root_block_size=$(dumpe2fs -h /dev/mapper/ufi210-root 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
 printf 'ROOT_FS_BYTES=%s\n' "$((root_blocks * root_block_size))"
-printf 'DATA='; findmnt -nro SOURCE /data
-printf 'DATA_UUID='; findmnt -nro UUID /data
-data_blocks=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
-data_block_size=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
-printf 'DATA_FS_BYTES=%s\n' "$((data_blocks * data_block_size))"
-printf 'DATA_OPTIONS='; findmnt -nro OPTIONS /data
-for data_dir in apps backups srv; do test -d "/data/$data_dir"; done
-printf 'DATA_DIRS=ready\n'
+if mountpoint -q /data; then echo 'DATA_MOUNTED=yes'; else echo 'DATA_MOUNTED=no'; fi
+printf 'DM_BYTES='; blockdev --getsize64 /dev/mapper/ufi210-root
+printf 'DM_LINES='; dmsetup table ufi210-root | wc -l
 printf 'FSTRIM_ENABLED='; systemctl is-enabled fstrim.timer
 printf 'KERNEL='; uname -r
 printf 'ARCH='; uname -m
@@ -192,12 +189,12 @@ function Assert-RuntimeProbe {
     if ($Probe.ExitCode -ne 0) { throw "运行态探针失败：`r`n$($Probe.Text)" }
     $checks = @(
         "BOOT_ID=$ExpectedBootId",
-        "ROOT=/dev/mmcblk0p21",
+        "ROOT=/dev/mapper/ufi210-root",
+        "ROOT_UUID=$ExpectedRootfsUuid",
         "ROOT_FS_BYTES=$ExpectedRootfsBytes",
-        "DATA=/dev/mmcblk0p29",
-        "DATA_UUID=$ExpectedDataUuid",
-        "DATA_FS_BYTES=$ExpectedDataFilesystemBytes",
-        "DATA_DIRS=ready",
+        "DATA_MOUNTED=no",
+        "DM_BYTES=3485240832",
+        "DM_LINES=3",
         "FSTRIM_ENABLED=enabled",
         "KERNEL=7.0.0-msm8909",
         "ARCH=armv7l",
@@ -213,15 +210,13 @@ function Assert-RuntimeProbe {
             throw "运行态探针缺少：$check`r`n$($Probe.Text)"
         }
     }
-    if ($Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\brw\b' -or
-        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnoatime\b' -or
-        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnosuid\b' -or
-        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnodev\b') {
-        throw "运行态 /data 挂载选项不匹配：`r`n$($Probe.Text)"
+    if ($Probe.Text -notmatch '(?m)^ROOT_OPTIONS=.*\brw\b' -or
+        $Probe.Text -notmatch '(?m)^ROOT_OPTIONS=.*\bnoatime\b') {
+        throw "运行态根文件系统挂载选项不匹配：`r`n$($Probe.Text)"
     }
     if ($Probe.Text -notmatch '(?m)^CMDLINE=.*\breboot=warm\b' -or
-        $Probe.Text -notmatch '(?m)^CMDLINE=.*\broot=PARTLABEL=system\b') {
-        throw "内核 cmdline 不包含 reboot=warm 和 system root：`r`n$($Probe.Text)"
+        $Probe.Text -notmatch '(?m)^CMDLINE=.*\broot=/dev/mapper/ufi210-root\b') {
+        throw "内核 cmdline 不包含 reboot=warm 和大根卷：`r`n$($Probe.Text)"
     }
     if ($Probe.Text -notmatch '(?m)^RNDIS_DEV_ADDR=02(?::[0-9a-f]{2}){5}\r?$' -or
         $Probe.Text -notmatch '(?m)^RNDIS_HOST_ADDR=06(?::[0-9a-f]{2}){5}\r?$') {
@@ -267,9 +262,9 @@ function Wait-ManagementReady {
 }
 
 $Adb = Resolve-Adb
-$Manifest = Join-Path $ProjectRoot "out\mainline\debian-system\BUILD-MANIFEST.txt"
+$Manifest = Join-Path $ProjectRoot "out\mainline\debian-large-rootfs\BUILD-MANIFEST.txt"
 if (-not (Test-Path -LiteralPath $Manifest -PathType Leaf)) {
-    throw "缺少 system 构建 manifest：$Manifest"
+    throw "缺少 large-rootfs 构建 manifest：$Manifest"
 }
 $manifestValues = @{}
 foreach ($line in Get-Content -LiteralPath $Manifest -Encoding UTF8) {
@@ -277,20 +272,20 @@ foreach ($line in Get-Content -LiteralPath $Manifest -Encoding UTF8) {
 }
 if (-not $ExpectedBootSha256) { $ExpectedBootSha256 = $manifestValues['boot_image_sha256'] }
 if ($BootImageBytes -eq 0) { $BootImageBytes = [int]$manifestValues['boot_image_bytes'] }
-$ExpectedRootfsBytes = $manifestValues['target_partition_bytes']
-$ExpectedDataFilesystemBytes = $manifestValues['data_filesystem_bytes']
-$ExpectedDataUuid = $manifestValues['data_uuid']
-if ($ExpectedRootfsBytes -ne '1288491008' -or
-    $manifestValues['data_partition_bytes'] -ne '1928314368' -or
-    $ExpectedDataFilesystemBytes -ne '1928310784' -or
-    $ExpectedDataUuid -ne '89090000-0000-4000-8000-000000000029' -or
-    $manifestValues['data_auto_grow'] -ne 'enabled' -or
+$ExpectedRootfsBytes = $manifestValues['dm_filesystem_bytes']
+$ExpectedRootfsUuid = $manifestValues['rootfs_uuid']
+if ($manifestValues['target_partition'] -ne 'large-rootfs' -or
+    $manifestValues['target_partition_bytes'] -ne '3485240832' -or
+    $manifestValues['dm_total_bytes'] -ne '3485240832' -or
+    $ExpectedRootfsBytes -ne '3485237248' -or
+    $ExpectedRootfsUuid -ne '89090000-0000-4000-8000-000000000031' -or
+    $manifestValues['rootfs_auto_grow'] -ne 'disabled' -or
     $manifestValues['fstrim'] -ne 'weekly-systemd-timer') {
     throw "构建 manifest 的持久存储布局不匹配"
 }
 if ($ExpectedBootSha256 -notmatch '^[0-9a-f]{64}$') { throw "boot SHA256 格式错误" }
 if ($BootImageBytes -le 0 -or $BootImageBytes -gt 33554432) { throw "boot 镜像长度越界" }
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ("reboot-cycles-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
@@ -342,11 +337,10 @@ Write-Utf8File (Join-Path $OutputDir "cycles.txt") (($results -join "`r`n") + "`
 $summary = @(
     "Debian 普通重启回归通过",
     "cycles=$Cycles",
-    "root=/dev/mmcblk0p21",
+    "root=/dev/mapper/ufi210-root",
     "root_filesystem_bytes=$ExpectedRootfsBytes",
-    "data=/dev/mmcblk0p29",
-    "data_filesystem_bytes=$ExpectedDataFilesystemBytes",
-    "data_uuid=$ExpectedDataUuid",
+    "root_uuid=$ExpectedRootfsUuid",
+    "data_mount=none",
     "fstrim_timer=enabled",
     "boot_sha256=$ExpectedBootSha256",
     "reboot_mode=warm",

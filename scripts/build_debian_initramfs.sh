@@ -22,7 +22,7 @@ die() {
 
 [[ "$SOURCE_DATE_EPOCH" == "$PROJECT_SOURCE_DATE_EPOCH" ]] \
     || die "正式 initramfs SOURCE_DATE_EPOCH 必须为 $PROJECT_SOURCE_DATE_EPOCH"
-for command_name in cpio file find gzip install readlink realpath sort touch; do
+for command_name in cpio file find gzip install readlink realpath sort stat touch; do
     command -v "$command_name" >/dev/null 2>&1 || die "缺少命令：$command_name"
 done
 for required in "$INIT_SCRIPT" "$USB_GADGET_SCRIPT" "$REBOOT_COMPAT" "$REGULATORY_DB" "$REGULATORY_DB_SIGNATURE"; do
@@ -44,6 +44,10 @@ file "$busybox" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
     || die "busybox 不是 32 位 ARM 静态 ELF"
 file "$REBOOT_COMPAT" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
     || die "initramfs reboot 兼容程序不是 32 位 ARM 静态 ELF"
+dmsetup="$ROOTFS/usr/sbin/dmsetup"
+[[ -x "$dmsetup" ]] || die "Debian rootfs 缺少 dmsetup"
+file "$dmsetup" | grep -q 'ELF 32-bit.*ARM.*dynamically linked' \
+    || die "dmsetup 不是 32 位 ARM 动态 ELF"
 
 stage="$BUILD_DIR/root"
 rm -rf -- "$stage"
@@ -56,11 +60,45 @@ install -m 0644 "$REGULATORY_DB" "$stage/lib/firmware/regulatory.db"
 install -m 0644 "$REGULATORY_DB_SIGNATURE" "$stage/lib/firmware/regulatory.db.p7s"
 
 applets=(
-    cat cut echo find grep head hostname ip killall ln ls mkdir mount mountpoint
+    blockdev cat cut echo find grep head hostname ip killall ln ls mkdir mount mountpoint
     readlink rm sed setsid sh sha256sum sleep stty switch_root udhcpd umount wc
 )
 for applet in "${applets[@]}"; do
     ln -s busybox "$stage/bin/$applet"
+done
+
+copy_rootfs_runtime() {
+    local path="$1" source destination target target_path
+    [[ "$path" == /* && "$path" != *'/../'* ]] || die "initramfs 动态库路径无效：$path"
+    source="$ROOTFS$path"
+    destination="$stage$path"
+    [[ -e "$source" || -L "$source" ]] || die "dmsetup 运行库不存在：$path"
+    [[ ! -e "$destination" && ! -L "$destination" ]] || return 0
+    mkdir -p "$(dirname "$destination")"
+    if [[ -L "$source" ]]; then
+        target="$(readlink "$source")"
+        ln -s "$target" "$destination"
+        if [[ "$target" == /* ]]; then
+            target_path="$target"
+        else
+            target_path="$(realpath -ms "$(dirname "$path")/$target")"
+        fi
+        copy_rootfs_runtime "$target_path"
+    else
+        install -m "$(stat -c %a "$source")" "$source" "$destination"
+    fi
+}
+
+for runtime_path in \
+    /usr/sbin/dmsetup \
+    /lib/ld-linux-armhf.so.3 \
+    /lib/arm-linux-gnueabihf/libdevmapper.so.1.02.1 \
+    /lib/arm-linux-gnueabihf/libc.so.6 \
+    /lib/arm-linux-gnueabihf/libselinux.so.1 \
+    /lib/arm-linux-gnueabihf/libudev.so.1 \
+    /lib/arm-linux-gnueabihf/libm.so.6 \
+    /lib/arm-linux-gnueabihf/libpcre2-8.so.0; do
+    copy_rootfs_runtime "$runtime_path"
 done
 
 cat > "$stage/etc/udhcpd.conf" <<'EOF'

@@ -22,7 +22,7 @@ $OutputEncoding = New-Object Text.UTF8Encoding($false)
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 if (-not $OutputRoot) {
-    $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test"
+    $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test"
 }
 $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $CurrentJobFile = Join-Path $OutputRoot "stability-background-current.txt"

@@ -178,7 +178,7 @@ if (Test-Path -LiteralPath $Adb -PathType Leaf) {
     do {
         & $Adb connect 192.168.68.1:5555 2>&1 | Out-Null
         $probe = & $Adb -s 192.168.68.1:5555 shell `
-            'test "$(hostname)" = ufi210 && test "$(findmnt -nro SOURCE /)" = /dev/mmcblk0p21 && echo DEBIAN_OK' `
+            'test "$(hostname)" = ufi210 && test "$(findmnt -nro SOURCE /)" = /dev/mapper/ufi210-root && echo DEBIAN_OK' `
             2>&1
         if ($LASTEXITCODE -eq 0 -and $probe -match 'DEBIAN_OK') {
             Write-Host "9008 programmer 只读探测及 Debian 返回验收通过。"

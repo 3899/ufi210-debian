@@ -65,7 +65,7 @@ function Wait-DebianAdb {
 
 $Adb = Resolve-Tool $Adb "adb.exe"
 $Fastboot = Resolve-Tool $Fastboot "fastboot.exe"
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ("fastboot-reboot-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
@@ -77,7 +77,8 @@ grep -Fq DW01 /proc/device-tree/model
 grep -Fq ZU02_main_v1.1 /proc/device-tree/model
 test -x /system/bin/reboot
 test -d /sys/firmware/devicetree/base/soc@0/sram@8600000/reboot-mode
-grep -q 'root=PARTLABEL=system' /proc/cmdline
+grep -q 'root=/dev/mapper/ufi210-root' /proc/cmdline
+test "$(findmnt -nro SOURCE /)" = /dev/mapper/ufi210-root
 printf 'boot_id='; cat /proc/sys/kernel/random/boot_id
 printf 'kernel='; uname -r
 printf 'root='; findmnt -n -o SOURCE /

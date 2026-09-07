@@ -12,7 +12,7 @@ $ErrorActionPreference = "Stop"
 
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $Adb = Join-Path $ProjectRoot "adb.exe"
-$ManifestPath = Join-Path $ProjectRoot "out\mainline\debian-system\BUILD-MANIFEST.txt"
+$ManifestPath = Join-Path $ProjectRoot "out\mainline\debian-large-rootfs\BUILD-MANIFEST.txt"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
@@ -50,11 +50,13 @@ function Read-Manifest {
     foreach ($line in Get-Content -LiteralPath $ManifestPath -Encoding UTF8) {
         if ($line -match '^([^=]+)=(.*)$') { $values[$Matches[1]] = $Matches[2] }
     }
-    foreach ($key in @("wcnss_iris", "wcnss_country", "wcnss_nv_source", "rootfs_image_sha256", "boot_image_sha256")) {
+    foreach ($key in @("target_partition", "rootfs_device", "wcnss_iris", "wcnss_country", "wcnss_nv_source", "rootfs_image_sha256", "boot_image_sha256")) {
         if (-not $values.ContainsKey($key)) { throw "构建清单缺少字段：$key" }
     }
-    if ($values.wcnss_iris -ne "qcom,wcn3620" -or $values.wcnss_country -ne "CN") {
-        throw "构建清单不是目标 WCN3620/CN 版本"
+    if ($values.target_partition -ne "large-rootfs" -or
+        $values.rootfs_device -ne "/dev/mapper/ufi210-root" -or
+        $values.wcnss_iris -ne "qcom,wcn3620" -or $values.wcnss_country -ne "CN") {
+        throw "构建清单不是目标 large-rootfs WCN3620/CN 版本"
     }
     if ($values.wcnss_nv_source -ne "PARTLABEL-persist-read-only") {
         throw "构建清单未声明从本机只读 persist 使用 WCNSS NV"
@@ -76,7 +78,7 @@ function Wait-TcpAdb {
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) { throw "缺少工具：$Adb" }
 if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { throw "缺少构建清单：$ManifestPath" }
 $manifest = Read-Manifest
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ("wcnss-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 

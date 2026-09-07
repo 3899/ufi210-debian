@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import struct
 import xml.etree.ElementTree as ET
@@ -121,9 +122,11 @@ def build_backup_gpt(metadata: dict[str, int], primary_header: bytes, primary_ra
     entries_length = metadata["entry_count"] * metadata["entry_size"]
     entries = primary_raw[2 * SECTOR_SIZE : 2 * SECTOR_SIZE + entries_length]
     entry_sectors = (entries_length + SECTOR_SIZE - 1) // SECTOR_SIZE
-    backup_entries_lba = metadata["backup_lba"] - entry_sectors
     backup_region_start = metadata["last_usable_lba"] + 1
-    if backup_entries_lba < backup_region_start:
+    # Qualcomm 的 GPT 即使只声明了较少条目，也从 last_usable_lba + 1
+    # 开始保留完整备分区表区域，条目并不紧贴备 header。
+    backup_entries_lba = backup_region_start
+    if backup_entries_lba + entry_sectors > metadata["backup_lba"]:
         raise ValueError("备 GPT 分区表与可用数据区重叠")
 
     backup_header = bytearray(primary_header)
@@ -140,6 +143,72 @@ def build_backup_gpt(metadata: dict[str, int], primary_header: bytes, primary_ra
     backup_region[entries_offset : entries_offset + len(entries)] = entries
     backup_region[-SECTOR_SIZE:] = backup_header
     return bytes(backup_region)
+
+
+def validate_backup_gpt(
+    backup_path: Path,
+    metadata: dict[str, int],
+    primary_header: bytes,
+    primary_raw: bytes,
+) -> bytes:
+    raw = backup_path.read_bytes()
+    expected_sectors = metadata["backup_lba"] - metadata["last_usable_lba"]
+    if len(raw) != expected_sectors * SECTOR_SIZE:
+        raise ValueError(
+            f"备 GPT 文件大小错误：{len(raw)}，预期 {expected_sectors * SECTOR_SIZE} 字节"
+        )
+
+    header = raw[-SECTOR_SIZE:]
+    if header[:8] != GPT_SIGNATURE:
+        raise ValueError("备 GPT 最后一个扇区没有 GPT 签名")
+    header_size = u32(header, 12)
+    if header_size != metadata["header_size"]:
+        raise ValueError(f"主备 GPT header_size 不一致：{header_size}")
+
+    stored_header_crc = u32(header, 16)
+    header_for_crc = bytearray(header[:header_size])
+    struct.pack_into("<I", header_for_crc, 16, 0)
+    if crc32(header_for_crc) != stored_header_crc:
+        raise ValueError("备 GPT header CRC 不匹配")
+
+    current_lba = u64(header, 24)
+    alternate_lba = u64(header, 32)
+    first_usable_lba = u64(header, 40)
+    last_usable_lba = u64(header, 48)
+    entries_lba = u64(header, 72)
+    entry_count = u32(header, 80)
+    entry_size = u32(header, 84)
+    entries_crc = u32(header, 88)
+    expected_entries_lba = metadata["last_usable_lba"] + 1
+    if (current_lba, alternate_lba) != (metadata["backup_lba"], 1):
+        raise ValueError("备 GPT 的当前/备用 header LBA 不正确")
+    if (first_usable_lba, last_usable_lba) != (
+        metadata["first_usable_lba"],
+        metadata["last_usable_lba"],
+    ):
+        raise ValueError("主备 GPT 的可用 LBA 边界不一致")
+    if entries_lba != expected_entries_lba:
+        raise ValueError(
+            f"备 GPT partition_entries_lba 错误：{entries_lba}，预期 {expected_entries_lba}"
+        )
+    if (entry_count, entry_size, entries_crc) != (
+        metadata["entry_count"],
+        metadata["entry_size"],
+        metadata["entries_crc32"],
+    ):
+        raise ValueError("主备 GPT 的分区条目参数或 CRC 不一致")
+    if header[56:72] != primary_header[56:72]:
+        raise ValueError("主备 GPT 的磁盘 GUID 不一致")
+
+    entries_length = entry_count * entry_size
+    entries_offset = (entries_lba - expected_entries_lba) * SECTOR_SIZE
+    entries = raw[entries_offset : entries_offset + entries_length]
+    primary_entries = primary_raw[2 * SECTOR_SIZE : 2 * SECTOR_SIZE + entries_length]
+    if len(entries) != entries_length or crc32(entries) != entries_crc:
+        raise ValueError("备 GPT 的分区条目 CRC 不匹配")
+    if entries != primary_entries:
+        raise ValueError("主备 GPT 的分区条目内容不一致")
+    return raw
 
 
 def find_partition_backups(backup_dir: Path, partitions: list[dict[str, int | str]]) -> None:
@@ -196,6 +265,11 @@ def main() -> None:
         default=project_root / "resource/backup",
     )
     parser.add_argument(
+        "--backup-gpt",
+        type=Path,
+        help="可选的真机备 GPT 回读文件；提供后会执行主备一致性和逐字节生成校验",
+    )
+    parser.add_argument(
         "--out",
         type=Path,
         default=project_root / "out/recovery-baseline",
@@ -212,6 +286,14 @@ def main() -> None:
     find_partition_backups(backup_dir, partitions)
 
     backup_gpt = build_backup_gpt(metadata, primary_header, primary_raw)
+    backup_gpt_source_sha256 = None
+    if args.backup_gpt is not None:
+        backup_gpt_source = validate_backup_gpt(
+            args.backup_gpt.resolve(), metadata, primary_header, primary_raw
+        )
+        if backup_gpt != backup_gpt_source:
+            raise ValueError("生成的备 GPT 与真机回读文件不一致")
+        backup_gpt_source_sha256 = hashlib.sha256(backup_gpt_source).hexdigest()
     backup_gpt_path = out_dir / "zu02-gpt-backup.bin"
     backup_gpt_path.write_bytes(backup_gpt)
 
@@ -274,6 +356,8 @@ def main() -> None:
         "disk_bytes": metadata["disk_sectors"] * SECTOR_SIZE,
         "primary_header_crc32": f"0x{metadata['header_crc32']:08x}",
         "partition_entries_crc32": f"0x{metadata['entries_crc32']:08x}",
+        "generated_backup_gpt_sha256": hashlib.sha256(backup_gpt).hexdigest(),
+        "source_backup_gpt_sha256": backup_gpt_source_sha256,
         "partition_count": len(partitions),
         "partitions": [
             {
@@ -294,6 +378,8 @@ def main() -> None:
     )
 
     print(f"GPT CRC 校验通过，磁盘扇区数：{metadata['disk_sectors']}")
+    if args.backup_gpt is not None:
+        print("主备 GPT 和生成结果逐字节一致")
     print(f"已核验 {len(partitions)} 个分区备份，大小全部匹配")
     print(f"已生成：{out_dir / 'rawprogram-zu02-android-os-only.xml'}")
     print(f"已生成：{out_dir / 'rawprogram-zu02-android-os-cache.xml'}")

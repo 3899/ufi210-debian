@@ -3,10 +3,18 @@ set -euo pipefail
 
 PROJECT_ROOT="${PROJECT_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 TARGET_PARTITION="${TARGET_PARTITION:-cache}"
+RESUME_VERIFIED_A="${RESUME_VERIFIED_A:-0}"
 case "$TARGET_PARTITION" in
-    cache|system) ;;
+    cache|system|large-rootfs) ;;
     *)
-        printf '错误：TARGET_PARTITION 只允许 cache 或 system\n' >&2
+        printf '错误：TARGET_PARTITION 只允许 cache、system 或 large-rootfs\n' >&2
+        exit 1
+        ;;
+esac
+case "$RESUME_VERIFIED_A" in
+    0|1) ;;
+    *)
+        printf '错误：RESUME_VERIFIED_A 只允许 0 或 1\n' >&2
         exit 1
         ;;
 esac
@@ -71,6 +79,7 @@ run_build() {
     bash scripts/register_qemu_arm_binfmt.sh
     PROJECT_ROOT_OVERRIDE="$PROJECT_ROOT" \
     TARGET_PARTITION="$TARGET_PARTITION" \
+    RESUME_VERIFIED_A="$RESUME_VERIFIED_A" \
     BUILD_ROOT="$BUILD_ROOT" \
     BUILD_SCRIPT="$BUILD_SCRIPT_FILE" \
     VERIFY_SCRIPT="$VERIFY_SCRIPT_FILE" \
@@ -89,6 +98,7 @@ start_build() {
     nohup env \
         PROJECT_ROOT_OVERRIDE="$PROJECT_ROOT" \
         TARGET_PARTITION="$TARGET_PARTITION" \
+        RESUME_VERIFIED_A="$RESUME_VERIFIED_A" \
         BUILD_ROOT="$BUILD_ROOT" \
         setsid "$RUNNER_FILE" run > "$LOG_FILE" 2>&1 < /dev/null &
     printf '%s\n' "$!" > "$PID_FILE"

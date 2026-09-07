@@ -73,14 +73,14 @@ function Save-Probe {
 Wait-DebianAdb
 $identity = Invoke-Adb @(
     "-s", $AdbSerial, "shell",
-    'test "$(hostname)" = ufi210 && test "$(cat /sys/devices/soc0/soc_id)" = 245 && test "$(findmnt -nro SOURCE /)" = /dev/mmcblk0p21 && echo UFI210_DEBIAN_OK'
+    'test "$(hostname)" = ufi210 && test "$(cat /sys/devices/soc0/soc_id)" = 245 && test "$(findmnt -nro SOURCE /)" = /dev/mapper/ufi210-root && echo UFI210_DEBIAN_OK'
 )
 if ($identity.Text -notmatch '(?m)^UFI210_DEBIAN_OK\r?$') {
     throw "ADB 设备不是目标 UFI210 Debian：`r`n$($identity.Text)"
 }
 
 if (-not $OutputRoot) {
-    $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test"
+    $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test"
 }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) (
     "usb-failure-postmortem-" + (Get-Date -Format "yyyyMMdd-HHmmss")

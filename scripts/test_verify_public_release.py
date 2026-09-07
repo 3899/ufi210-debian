@@ -21,6 +21,19 @@ SPEC.loader.exec_module(MODULE)
 
 
 class PublicReleaseVerificationTests(unittest.TestCase):
+    def test_verifier_targets_large_rootfs_release(self) -> None:
+        source = MODULE_PATH.read_text(encoding="utf-8")
+        self.assertIn("scripts/verify_debian_large_rootfs.sh", source)
+        self.assertIn("out/mainline/debian-large-rootfs", source)
+        for name in (
+            "debian-bookworm-armhf-large-rootfs-system.img",
+            "debian-bookworm-armhf-large-rootfs-cache.img",
+            "debian-bookworm-armhf-large-rootfs-userdata.img",
+            "boot-debian-large-rootfs.img",
+        ):
+            self.assertIn(name, source)
+        self.assertNotIn("debian-bookworm-armhf-data.ext4", source)
+
     def test_parse_checksum_manifest_requires_exact_names(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             manifest = Path(temporary) / "SHA256SUMS"

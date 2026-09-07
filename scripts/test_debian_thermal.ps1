@@ -88,7 +88,7 @@ function Test-RndisPing {
 }
 
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) { throw "缺少工具：$Adb" }
-if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
+if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-large-rootfs-device-test" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ("thermal-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
@@ -96,7 +96,7 @@ Wait-TcpAdb
 $identity = Invoke-AdbShell @'
 set -eu
 test "$(cat /sys/devices/soc0/soc_id)" = 245
-test "$(findmnt -nro SOURCE /)" = /dev/mmcblk0p21
+test "$(findmnt -nro SOURCE /)" = /dev/mapper/ufi210-root
 for zone_type in cpu0-2-thermal cpu1-3-thermal; do
     zone=''
     for candidate in /sys/class/thermal/thermal_zone*; do

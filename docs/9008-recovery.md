@@ -39,8 +39,8 @@ out/recovery-baseline/zu02-recovery-manifest.json
 - system
 - recovery
 
-当前 Debian 安装器覆盖 boot、system 和 userdata。GPT 与 bootloader 完整时仍优先使用 OS-only
-恢复 boot/system/recovery，但 Android userdata 还必须按目标 Android 固件的要求重新格式化或恢复。
+当前 Debian 安装器覆盖 boot、system、cache 和 userdata。GPT 与 bootloader 完整时仍优先使用 OS-only
+恢复 boot/system/recovery，但 Android cache 和 userdata 还必须按目标 Android 固件的要求重新格式化或恢复。
 该流程本身不会写 modem、modemst、fsg、persist、DDR、sbl1、aboot、rpm、tz、cache、userdata
 或 GPT。
 
@@ -84,6 +84,31 @@ programmer 能握手不等于已验证可写；首次受控写入演练完成前
 
 不同文件名的 programmer 不能仅凭 SoC 名称判定兼容。没有当前设备的成功握手日志时，不得直接
 执行 rawprogram。
+
+## Fastboot 回滚 Android
+
+如果设备仍能进入 fastboot，可使用本机原始分区备份回滚 Android。脚本要求提供由同一备份目录
+生成的 SHA256 清单，并在校验产品、分区尺寸和每个镜像哈希后才允许写入；它不修改 GPT，也不会
+自动重启，便于先检查 fastboot 输出：
+
+```powershell
+.\scripts\restore_android_fastboot.ps1 `
+  -BackupDirectory '.\resource\backup' `
+  -ManifestPath '.\resource\backup\sha256sums-device-original.txt' `
+  -ConfirmRestoreAndroid
+```
+
+确认恢复结果后再执行：
+
+```powershell
+.\scripts\restore_android_fastboot.ps1 `
+  -BackupDirectory '.\resource\backup' `
+  -ManifestPath '.\resource\backup\sha256sums-device-original.txt' `
+  -ConfirmRestoreAndroid -RebootAfterRestore
+```
+
+该脚本只适用于生成这些备份的同一台设备。恢复后的 Android 仍可能需要按原固件流程重新
+格式化 userdata；如果 bootloader 或 GPT 已损坏，应改用设备专属 9008 恢复流程。
 
 ## 禁止事项
 

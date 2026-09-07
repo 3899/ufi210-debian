@@ -272,14 +272,17 @@ def verify_release(project_root: Path, out_root: Path, version: str) -> None:
             raise ReleaseVerificationError(f"SHA256 mismatch: {name}")
         print(f"SHA256 passed: {actual_digest}  {name}")
 
-    run_checked(["bash", str(project_root / "scripts/verify_debian_system.sh")], project_root)
+    run_checked(
+        ["bash", str(project_root / "scripts/verify_debian_large_rootfs.sh")],
+        project_root,
+    )
     run_checked(
         [
             sys.executable,
             str(project_root / "scripts/audit_rootfs_privacy.py"),
             str(
                 project_root
-                / "out/mainline/debian-system/debian-bookworm-armhf-system-rootfs.tar.xz"
+                / "out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-rootfs.tar.xz"
             ),
         ],
         project_root,
@@ -322,11 +325,12 @@ def verify_release(project_root: Path, out_root: Path, version: str) -> None:
         )
         verify_kernel_tree(kernel_root, project_root)
 
-        built_root = project_root / "out/mainline/debian-system"
+        built_root = project_root / "out/mainline/debian-large-rootfs"
         for image_name in (
-            "debian-bookworm-armhf-system.ext4",
-            "debian-bookworm-armhf-data.ext4",
-            "boot-debian-system.img",
+            "debian-bookworm-armhf-large-rootfs-system.img",
+            "debian-bookworm-armhf-large-rootfs-cache.img",
+            "debian-bookworm-armhf-large-rootfs-userdata.img",
+            "boot-debian-large-rootfs.img",
         ):
             if sha256_file(binary_root / image_name) != sha256_file(built_root / image_name):
                 raise ReleaseVerificationError(

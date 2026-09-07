@@ -93,7 +93,7 @@ $selectedAdb = if ($adbDevices -contains $tcpAdbSerial) { $tcpAdbSerial } else {
 
 $probe = Invoke-Native $Adb @(
     "-s", $selectedAdb, "shell",
-    'test "$(hostname)" = ufi210 && test "$(cat /sys/devices/soc0/soc_id)" = 245 && test "$(findmnt -nro SOURCE /)" = /dev/mmcblk0p21 && test -x /system/bin/reboot && echo UFI210_DEBIAN_OK'
+    'test "$(hostname)" = ufi210 && test "$(cat /sys/devices/soc0/soc_id)" = 245 && case "$(findmnt -nro SOURCE /)" in /dev/mmcblk0p21|/dev/mapper/ufi210-root) ;; *) exit 1 ;; esac && test -x /system/bin/reboot && echo UFI210_DEBIAN_OK'
 ) -AllowFailure
 if ($probe.ExitCode -ne 0 -or $probe.Text -notmatch '(?m)^UFI210_DEBIAN_OK\r?$') {
     throw "ADB 设备不是可重启到 fastboot 的 UFI210 Debian：`r`n$($probe.Text)"

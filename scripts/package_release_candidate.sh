@@ -8,10 +8,10 @@ VERSION="${1:-}"
 PROJECT_SOURCE_DATE_EPOCH=1781860238
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$PROJECT_SOURCE_DATE_EPOCH}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/out/release-candidate}"
-DEBIAN_OUT="$PROJECT_ROOT/out/mainline/debian-system"
+DEBIAN_OUT="$PROJECT_ROOT/out/mainline/debian-large-rootfs"
 AUDIT_SCRIPT="$PROJECT_ROOT/scripts/audit_public_release.sh"
 PRIVACY_AUDITOR="$PROJECT_ROOT/scripts/audit_rootfs_privacy.py"
-VERIFY_SCRIPT="$PROJECT_ROOT/scripts/verify_debian_system.sh"
+VERIFY_SCRIPT="$PROJECT_ROOT/scripts/verify_debian_large_rootfs.sh"
 ZIPPER="$PROJECT_ROOT/scripts/create_deterministic_zip.py"
 
 log() {
@@ -44,16 +44,17 @@ for required in \
     "$PROJECT_ROOT/LICENSE" "$PROJECT_ROOT/docs/release-install.md" \
     "$PROJECT_ROOT/docs/release-notes.md" "$PROJECT_ROOT/docs/licensing.md" \
     "$PROJECT_ROOT/LICENSES/MIT.txt" "$PROJECT_ROOT/LICENSES/GPL-2.0-only.txt" \
-    "$DEBIAN_OUT/debian-bookworm-armhf-system.ext4" \
-    "$DEBIAN_OUT/debian-bookworm-armhf-data.ext4" \
-    "$DEBIAN_OUT/boot-debian-system.img" \
+    "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-system.img" \
+    "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-cache.img" \
+    "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-userdata.img" \
+    "$DEBIAN_OUT/boot-debian-large-rootfs.img" \
     "$DEBIAN_OUT/BUILD-MANIFEST.txt" "$DEBIAN_OUT/REPRODUCIBILITY.txt"; do
     [[ -s "$required" ]] || die "缺少发布输入：$required"
 done
 
-log "运行 Debian system 静态验收"
+log "运行 Debian large-rootfs 静态验收"
 bash "$VERIFY_SCRIPT"
-python3 "$PRIVACY_AUDITOR" "$DEBIAN_OUT/debian-bookworm-armhf-system-rootfs.tar.xz"
+python3 "$PRIVACY_AUDITOR" "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-rootfs.tar.xz"
 bash "$AUDIT_SCRIPT" workspace
 
 release_dir="$OUT_ROOT/$VERSION"
@@ -95,38 +96,51 @@ install -m 0644 "$PROJECT_ROOT/LICENSES/MIT.txt" "$binary_stage/LICENSES/MIT.txt
 install -m 0644 "$PROJECT_ROOT/LICENSES/GPL-2.0-only.txt" "$binary_stage/LICENSES/GPL-2.0-only.txt"
 install -m 0644 "$PROJECT_ROOT/install.bat" "$binary_stage/install.bat"
 install -m 0644 "$PROJECT_ROOT/enter-fastboot.bat" "$binary_stage/enter-fastboot.bat"
-install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-system.ext4" "$binary_stage/"
-install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-data.ext4" "$binary_stage/"
-install -m 0644 "$DEBIAN_OUT/boot-debian-system.img" "$binary_stage/"
-install -m 0644 "$PROJECT_ROOT/scripts/install_debian_system.ps1" "$binary_stage/scripts/"
+install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-system.img" "$binary_stage/"
+install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-cache.img" "$binary_stage/"
+install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-userdata.img" "$binary_stage/"
+install -m 0644 "$DEBIAN_OUT/boot-debian-large-rootfs.img" "$binary_stage/"
+install -m 0644 "$PROJECT_ROOT/scripts/install_debian_large_rootfs.ps1" "$binary_stage/scripts/"
 install -m 0644 "$PROJECT_ROOT/scripts/enter_fastboot.ps1" "$binary_stage/scripts/"
 
-rootfs_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-system.ext4" | awk '{print $1}')"
-data_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-data.ext4" | awk '{print $1}')"
-boot_hash="$(sha256sum "$binary_stage/boot-debian-system.img" | awk '{print $1}')"
+rootfs_system_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-large-rootfs-system.img" | awk '{print $1}')"
+rootfs_cache_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-large-rootfs-cache.img" | awk '{print $1}')"
+rootfs_userdata_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-large-rootfs-userdata.img" | awk '{print $1}')"
+boot_hash="$(sha256sum "$binary_stage/boot-debian-large-rootfs.img" | awk '{print $1}')"
 manifest_value() {
     sed -n "s/^$1=//p" "$DEBIAN_OUT/BUILD-MANIFEST.txt"
 }
-[[ "$(manifest_value rootfs_image_sha256)" == "$rootfs_hash" ]] \
-    || die "rootfs 哈希与构建清单不一致"
-[[ "$(manifest_value data_image_sha256)" == "$data_hash" ]] \
-    || die "data 哈希与构建清单不一致"
+[[ "$(manifest_value rootfs_system_image_sha256)" == "$rootfs_system_hash" ]] \
+    || die "rootfs system 分段哈希与构建清单不一致"
+[[ "$(manifest_value rootfs_cache_image_sha256)" == "$rootfs_cache_hash" ]] \
+    || die "rootfs cache 分段哈希与构建清单不一致"
+[[ "$(manifest_value rootfs_userdata_image_sha256)" == "$rootfs_userdata_hash" ]] \
+    || die "rootfs userdata 分段哈希与构建清单不一致"
+[[ "$(manifest_value rootfs_image_sha256)" == "$(cat \
+    "$binary_stage/debian-bookworm-armhf-large-rootfs-system.img" \
+    "$binary_stage/debian-bookworm-armhf-large-rootfs-cache.img" \
+    "$binary_stage/debian-bookworm-armhf-large-rootfs-userdata.img" \
+    | sha256sum | awk '{print $1}')" ]] \
+    || die "完整逻辑 rootfs 哈希与三个分段不一致"
 [[ "$(manifest_value boot_image_sha256)" == "$boot_hash" ]] \
     || die "boot 哈希与构建清单不一致"
 for reproducibility_field in \
     'result=passed' \
     'comparison=byte-for-byte' \
-    'target_partition=system'; do
+    'target_partition=large-rootfs'; do
     grep -Fqx "$reproducibility_field" "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
         || die "双构建报告缺少：$reproducibility_field"
 done
-grep -Fqx "$rootfs_hash  debian-bookworm-armhf-system.ext4" \
+grep -Fqx "$rootfs_system_hash  debian-bookworm-armhf-large-rootfs-system.img" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
-    || die "当前 rootfs 不属于已通过双构建比较的产物"
-grep -Fqx "$data_hash  debian-bookworm-armhf-data.ext4" \
+    || die "当前 rootfs system 分段不属于已通过双构建比较的产物"
+grep -Fqx "$rootfs_cache_hash  debian-bookworm-armhf-large-rootfs-cache.img" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
-    || die "当前 data 不属于已通过双构建比较的产物"
-grep -Fqx "$boot_hash  boot-debian-system.img" \
+    || die "当前 rootfs cache 分段不属于已通过双构建比较的产物"
+grep -Fqx "$rootfs_userdata_hash  debian-bookworm-armhf-large-rootfs-userdata.img" \
+    "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
+    || die "当前 rootfs userdata 分段不属于已通过双构建比较的产物"
+grep -Fqx "$boot_hash  boot-debian-large-rootfs.img" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
     || die "当前 boot 不属于已通过双构建比较的产物"
 
@@ -139,8 +153,9 @@ platform=msm8909
 hardware_target=zu02-dw01
 device=ZU02_main_v1.1-DW01
 soc=MSM8909
-persistent_partitions=boot,system,userdata
+persistent_partitions=boot,system,cache,userdata
 android_system_partition=overwritten
+android_cache_partition=overwritten
 android_userdata_partition=erased
 boot_mode=stock-aboot-direct-qcdt
 bootloader_changes=none
@@ -154,15 +169,26 @@ hostname=$(manifest_value hostname)
 target_partition=$(manifest_value target_partition)
 target_partition_bytes=$(manifest_value target_partition_bytes)
 rootfs_auto_grow=$(manifest_value rootfs_auto_grow)
-data_partition=$(manifest_value data_partition)
-data_partition_bytes=$(manifest_value data_partition_bytes)
-data_filesystem_bytes=$(manifest_value data_filesystem_bytes)
-data_uuid=$(manifest_value data_uuid)
-data_label=$(manifest_value data_label)
-data_mount=$(manifest_value data_mount)
-data_mount_options=$(manifest_value data_mount_options)
-data_auto_grow=$(manifest_value data_auto_grow)
-data_initial_directories=$(manifest_value data_initial_directories)
+rootfs_device=$(manifest_value rootfs_device)
+rootfs_label=$(manifest_value rootfs_label)
+rootfs_uuid=$(manifest_value rootfs_uuid)
+rootfs_image_bytes=$(manifest_value rootfs_image_bytes)
+rootfs_image_sha256=$(manifest_value rootfs_image_sha256)
+rootfs_segments=$(manifest_value rootfs_segments)
+storage_layout=$(manifest_value storage_layout)
+dm_name=$(manifest_value dm_name)
+dm_total_sectors=$(manifest_value dm_total_sectors)
+dm_total_bytes=$(manifest_value dm_total_bytes)
+dm_filesystem_bytes=$(manifest_value dm_filesystem_bytes)
+dm_system_sectors=$(manifest_value dm_system_sectors)
+dm_cache_sectors=$(manifest_value dm_cache_sectors)
+dm_userdata_sectors=$(manifest_value dm_userdata_sectors)
+dm_system_start=$(manifest_value dm_system_start)
+dm_cache_start=$(manifest_value dm_cache_start)
+dm_userdata_start=$(manifest_value dm_userdata_start)
+dm_table=$(manifest_value dm_table)
+gpt_changes=$(manifest_value gpt_changes)
+cache_previous_contents=$(manifest_value cache_previous_contents)
 userdata_previous_contents=$(manifest_value userdata_previous_contents)
 fstrim=$(manifest_value fstrim)
 time_sync=$(manifest_value time_sync)
@@ -195,11 +221,16 @@ lte_apn=$(manifest_value lte_apn)
 qcdt_version=$(manifest_value qcdt_version)
 qcdt_record_count=$(manifest_value qcdt_record_count)
 qcdt_unique_dtb_count=$(manifest_value qcdt_unique_dtb_count)
-rootfs_image=debian-bookworm-armhf-system.ext4
-rootfs_image_sha256=$rootfs_hash
-data_image=debian-bookworm-armhf-data.ext4
-data_image_sha256=$data_hash
-boot_image=boot-debian-system.img
+rootfs_system_image=debian-bookworm-armhf-large-rootfs-system.img
+rootfs_system_image_bytes=$(manifest_value rootfs_system_image_bytes)
+rootfs_system_image_sha256=$rootfs_system_hash
+rootfs_cache_image=debian-bookworm-armhf-large-rootfs-cache.img
+rootfs_cache_image_bytes=$(manifest_value rootfs_cache_image_bytes)
+rootfs_cache_image_sha256=$rootfs_cache_hash
+rootfs_userdata_image=debian-bookworm-armhf-large-rootfs-userdata.img
+rootfs_userdata_image_bytes=$(manifest_value rootfs_userdata_image_bytes)
+rootfs_userdata_image_sha256=$rootfs_userdata_hash
+boot_image=boot-debian-large-rootfs.img
 boot_image_sha256=$boot_hash
 EOF
 

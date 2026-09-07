@@ -17,7 +17,7 @@
 | eMMC 控制器 | `7824900.sdhci` |
 | USB gadget controller | `msm_hsusb` |
 
-安装脚本检查 Android `ro.product.device=msm8909`、SoC ID、启动完成状态、boot/system/userdata
+安装脚本检查 Android `ro.product.device=msm8909`、SoC ID、启动完成状态、boot/system/cache/userdata
 分区尺寸、fastboot product 和候选镜像哈希。
 
 ## 分区边界
@@ -26,17 +26,18 @@
 | --- | ---: | --- |
 | boot | 33,554,432 | 写入 Debian boot image |
 | recovery | 33,554,432 | 保持不变 |
-| cache | 268,435,456 | 保持不变 |
-| system | 1,288,491,008 | 写入 Debian rootfs 并首次启动扩容 |
-| userdata | 1,928,314,368 | 擦除原内容，写入 Debian `/data` 并首次启动扩容 |
+| cache | 268,435,456 | 写入 Debian 根卷的第二段 |
+| system | 1,288,491,008 | 写入 Debian 根卷的第一段 |
+| userdata | 1,928,314,368 | 写入 Debian 根卷的第三段；末尾 3,584 字节不属于 ext4 |
 | persist | 33,554,432 | 只读挂载，禁止写入 |
 | modemst1 | 1,572,864 | 禁止写入 |
 | modemst2 | 1,572,864 | 禁止写入 |
 | fsg | 1,572,864 | 禁止写入 |
 
-构建 rootfs 镜像为 255 MiB，必须小于 system 分区并保留至少 32 MiB 文件系统空闲空间；data
-初始镜像为 64 MiB。首次启动后 `x-systemd.growfs` 分别把两个 ext4 扩展到完整 system 和
-userdata 分区。两个分区合计约 3.0 GiB，boot image 必须小于 32 MiB。
+构建时生成 3,485,237,248 字节的完整 ext4，再按固定边界切成 system、cache 和 userdata
+三张 fastboot 镜像。initramfs 只在三个 PARTNAME、起始 LBA 和扇区数全部精确匹配时创建
+6,807,111 扇区的 `ufi210-root` 线性卷。文件系统预先达到最终大小，不依赖首启在线扩容；
+逻辑卷尾部保留 3,584 字节以满足 ext4 4 KiB 块边界。boot image 必须小于 32 MiB。
 
 ## QCDT 与内存
 
@@ -86,7 +87,8 @@ pmic0=65549
   -> boot 分区 Android boot image
   -> QCDT v3 匹配唯一 DW01 DTB
   -> Linux 7.0.0-msm8909
-  -> system 分区 Debian 12
+  -> initramfs 组合 system + cache + userdata
+  -> /dev/mapper/ufi210-root 上的 Debian 12
 ```
 
 无 QCDT 直启会被原厂 fastboot 以 `dtb not found` 拒绝；带 QCDT 的同一 kernel/initramfs 已实机

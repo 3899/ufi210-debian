@@ -8,6 +8,9 @@ OUT_DIR="${OUT_DIR:-$PROJECT_ROOT/out/mainline/debian-cache}"
 TARGET_PARTITION="${TARGET_PARTITION:-cache}"
 KERNEL_DIR="$PROJECT_ROOT/out/mainline/kernel"
 IMAGE="$OUT_DIR/debian-bookworm-armhf-${TARGET_PARTITION}.ext4"
+ROOTFS_SYSTEM_IMAGE="$OUT_DIR/debian-bookworm-armhf-large-rootfs-system.img"
+ROOTFS_CACHE_IMAGE="$OUT_DIR/debian-bookworm-armhf-large-rootfs-cache.img"
+ROOTFS_USERDATA_IMAGE="$OUT_DIR/debian-bookworm-armhf-large-rootfs-userdata.img"
 DATA_IMAGE="$OUT_DIR/debian-bookworm-armhf-data.ext4"
 BOOT_IMAGE="$OUT_DIR/boot-debian-${TARGET_PARTITION}.img"
 INITRAMFS_BUILD_SCRIPT="$PROJECT_ROOT/scripts/build_debian_initramfs.sh"
@@ -44,6 +47,17 @@ DATA_FILESYSTEM_SIZE=1928310784
 DATA_UUID="89090000-0000-4000-8000-000000000029"
 DATA_HASH_SEED="89090000-0000-4000-8000-000000000030"
 DATA_LABEL="ufi210-data"
+SYSTEM_PARTITION_SIZE=1288491008
+SYSTEM_PARTITION_SECTORS=2516584
+CACHE_PARTITION_SECTORS=524288
+USERDATA_PARTITION_SECTORS=3766239
+SYSTEM_PARTITION_START=461920
+CACHE_PARTITION_START=3044040
+USERDATA_PARTITION_START=3803136
+LARGE_ROOTFS_SECTORS=6807111
+LARGE_ROOTFS_SIZE=3485240832
+LARGE_ROOTFS_FILESYSTEM_SIZE=3485237248
+LARGE_ROOTFS_TABLE="0 2516584 linear PARTLABEL=system 0;2516584 524288 linear PARTLABEL=cache 0;3040872 3766239 linear PARTLABEL=userdata 0"
 PROJECT_SOURCE_DATE_EPOCH=1781860238
 DEBIAN_SNAPSHOT_TIMESTAMP="20260903T000000Z"
 DEBIAN_SNAPSHOT_MIRROR="https://snapshot.debian.org/archive/debian/$DEBIAN_SNAPSHOT_TIMESTAMP"
@@ -56,18 +70,38 @@ case "$TARGET_PARTITION" in
         ROOTFS_UUID="89090000-0000-4000-8000-000000000023"
         ROOTFS_HASH_SEED="89090000-0000-4000-8000-000000000024"
         ROOTFS_AUTO_GROW=disabled
+        ROOTFS_DEVICE="PARTLABEL=cache"
+        ROOTFS_LABEL="debian-cache"
+        BOOT_ROOT_ARGUMENT="PARTLABEL=cache"
         ;;
     system)
         TARGET_PARTITION_SIZE=1288491008
         ROOTFS_UUID="89090000-0000-4000-8000-000000000021"
         ROOTFS_HASH_SEED="89090000-0000-4000-8000-000000000022"
         ROOTFS_AUTO_GROW=enabled
+        ROOTFS_DEVICE="PARTLABEL=system"
+        ROOTFS_LABEL="debian-system"
+        BOOT_ROOT_ARGUMENT="PARTLABEL=system"
+        ;;
+    large-rootfs)
+        TARGET_PARTITION_SIZE=$LARGE_ROOTFS_SIZE
+        ROOTFS_UUID="89090000-0000-4000-8000-000000000031"
+        ROOTFS_HASH_SEED="89090000-0000-4000-8000-000000000032"
+        ROOTFS_AUTO_GROW=disabled
+        ROOTFS_DEVICE="/dev/mapper/ufi210-root"
+        ROOTFS_LABEL="ufi210-root"
+        BOOT_ROOT_ARGUMENT="/dev/mapper/ufi210-root"
         ;;
     *)
-        printf '错误：TARGET_PARTITION 只允许 cache 或 system\n' >&2
+        printf '错误：TARGET_PARTITION 只允许 cache、system 或 large-rootfs\n' >&2
         exit 1
         ;;
 esac
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf -- "$tmp_dir"' EXIT
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    IMAGE="$tmp_dir/debian-bookworm-armhf-large-rootfs.ext4"
+fi
 EXPECTED_ROOT_HASH='$6$zu02bookworm$EkyrnT4tC/ZBMvbIhomnJMwfjZE.WmJf.aahDRaj7TO27.LiwOTWJ1HxtFvZ4o/MOl17fr4mT5hDcrAs61Sk5/'
 WCNSS_FIRMWARE_FILES=(
     wcnss.mdt
@@ -117,10 +151,10 @@ die() {
     exit 1
 }
 
-for command_name in awk cmp cpio cut debugfs dumpe2fs e2fsck fdtget file grep gzip head python3 readelf readlink sha256sum stat tail tar tune2fs; do
+for command_name in awk cmp cpio cut dd debugfs dumpe2fs e2fsck fdtget file grep gzip head python3 qemu-arm-static readelf readlink sha256sum stat tail tar truncate tune2fs; do
     command -v "$command_name" >/dev/null 2>&1 || die "缺少命令：$command_name"
 done
-for required in "$IMAGE" "$BOOT_IMAGE" "$INITRAMFS" "$ROOTFS_TARBALL" "$PACKAGE_LIST" \
+for required in "$BOOT_IMAGE" "$INITRAMFS" "$ROOTFS_TARBALL" "$PACKAGE_LIST" \
     "$MANIFEST" "$WCNSS_MANIFEST" "$MPSS_MANIFEST" "$WCNSS_START_SCRIPT" \
     "$MPSS_START_SCRIPT" "$MODEM_PREPARE_SCRIPT" "$MODEM_REGISTER_SCRIPT" "$WWAN_IP_SCRIPT" \
     "$NMTUI_WRAPPER" "$REBOOT_COMPAT_SOURCE" "$WIFI_AP_PROFILE" "$USB_MANAGEMENT_CONF" "$WIFI_MAC_CONF" \
@@ -128,6 +162,28 @@ for required in "$IMAGE" "$BOOT_IMAGE" "$INITRAMFS" "$ROOTFS_TARBALL" "$PACKAGE_
     "$INITRAMFS_INIT" "$QCDT_BUILD_SCRIPT" "$QCDT" "$USB_GADGET_SCRIPT" "$USB_WATCHDOG_SCRIPT" "$WCNSS_NV"; do
     [[ -s "$required" ]] || die "缺少产物：$required"
 done
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    for required in "$ROOTFS_SYSTEM_IMAGE" "$ROOTFS_CACHE_IMAGE" "$ROOTFS_USERDATA_IMAGE"; do
+        [[ -s "$required" ]] || die "缺少根卷分段：$required"
+    done
+    [[ "$(stat -c %s "$ROOTFS_SYSTEM_IMAGE")" == "$((SYSTEM_PARTITION_SECTORS * 512))" ]] \
+        || die "system 根卷分段大小错误"
+    [[ "$(stat -c %s "$ROOTFS_CACHE_IMAGE")" == "$((CACHE_PARTITION_SECTORS * 512))" ]] \
+        || die "cache 根卷分段大小错误"
+    [[ "$(stat -c %s "$ROOTFS_USERDATA_IMAGE")" == "$((LARGE_ROOTFS_FILESYSTEM_SIZE - SYSTEM_PARTITION_SIZE - CACHE_PARTITION_SECTORS * 512))" ]] \
+        || die "userdata 根卷分段大小错误"
+    truncate -s "$LARGE_ROOTFS_FILESYSTEM_SIZE" "$IMAGE"
+    dd if="$ROOTFS_SYSTEM_IMAGE" of="$IMAGE" bs=512 count="$SYSTEM_PARTITION_SECTORS" \
+        iflag=fullblock conv=notrunc,sparse status=none
+    dd if="$ROOTFS_CACHE_IMAGE" of="$IMAGE" bs=512 seek="$SYSTEM_PARTITION_SECTORS" \
+        count="$CACHE_PARTITION_SECTORS" iflag=fullblock conv=notrunc,sparse status=none
+    dd if="$ROOTFS_USERDATA_IMAGE" of="$IMAGE" bs=512 \
+        seek=$((SYSTEM_PARTITION_SECTORS + CACHE_PARTITION_SECTORS)) \
+        count=$((USERDATA_PARTITION_SECTORS - 7)) \
+        iflag=fullblock conv=notrunc,sparse status=none
+else
+    [[ -s "$IMAGE" ]] || die "缺少产物：$IMAGE"
+fi
 if [[ "$TARGET_PARTITION" == system ]]; then
     [[ -s "$DATA_IMAGE" ]] || die "缺少产物：$DATA_IMAGE"
 fi
@@ -188,6 +244,10 @@ log "核对 manifest 与构建输入"
 [[ "$(manifest_value rootfs_uuid)" == "$ROOTFS_UUID" ]] || die "rootfs UUID 策略不匹配"
 [[ "$(manifest_value rootfs_hash_seed)" == "$ROOTFS_HASH_SEED" ]] \
     || die "rootfs 目录哈希种子策略不匹配"
+[[ "$(manifest_value rootfs_label)" == "$ROOTFS_LABEL" ]] \
+    || die "rootfs 标签策略不匹配"
+[[ "$(manifest_value rootfs_device)" == "$ROOTFS_DEVICE" ]] \
+    || die "rootfs 设备策略不匹配"
 [[ "$(manifest_value rootfs_inode_time_epoch)" == "$PROJECT_SOURCE_DATE_EPOCH" ]] \
     || die "rootfs inode 时间策略不匹配"
 [[ "$(manifest_value rootfs_min_free_bytes)" == "$MIN_ROOTFS_FREE_BYTES" ]] \
@@ -218,6 +278,38 @@ if [[ "$TARGET_PARTITION" == system ]]; then
         || die "data 初始目录策略不匹配"
     [[ "$(manifest_value userdata_previous_contents)" == "erased-by-installer" ]] \
         || die "userdata 擦除策略不匹配"
+fi
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    [[ "$(manifest_value storage_layout)" == "dm-linear-system-cache-userdata" ]] \
+        || die "大根卷布局策略不匹配"
+    [[ "$(manifest_value dm_name)" == "ufi210-root" ]] || die "dm 名称不匹配"
+    [[ "$(manifest_value dm_total_sectors)" == "$LARGE_ROOTFS_SECTORS" ]] \
+        || die "dm 总扇区数不匹配"
+    [[ "$(manifest_value dm_total_bytes)" == "$LARGE_ROOTFS_SIZE" ]] \
+        || die "dm 总字节数不匹配"
+    [[ "$(manifest_value dm_filesystem_bytes)" == "$LARGE_ROOTFS_FILESYSTEM_SIZE" ]] \
+        || die "dm 扩容后文件系统字节数不匹配"
+    [[ "$(manifest_value dm_system_sectors)" == "$SYSTEM_PARTITION_SECTORS" ]] \
+        || die "dm system 扇区数不匹配"
+    [[ "$(manifest_value dm_cache_sectors)" == "$CACHE_PARTITION_SECTORS" ]] \
+        || die "dm cache 扇区数不匹配"
+    [[ "$(manifest_value dm_userdata_sectors)" == "$USERDATA_PARTITION_SECTORS" ]] \
+        || die "dm userdata 扇区数不匹配"
+    [[ "$(manifest_value dm_system_start)" == "$SYSTEM_PARTITION_START" ]] \
+        || die "dm system 起始 LBA 不匹配"
+    [[ "$(manifest_value dm_cache_start)" == "$CACHE_PARTITION_START" ]] \
+        || die "dm cache 起始 LBA 不匹配"
+    [[ "$(manifest_value dm_userdata_start)" == "$USERDATA_PARTITION_START" ]] \
+        || die "dm userdata 起始 LBA 不匹配"
+    [[ "$(manifest_value dm_table)" == "$LARGE_ROOTFS_TABLE" ]] \
+        || die "dm table 不匹配"
+    [[ "$(manifest_value gpt_changes)" == none ]] || die "大根卷不得修改 GPT"
+    [[ "$(manifest_value cache_previous_contents)" == erased-by-installer ]] \
+        || die "cache 擦除策略不匹配"
+    [[ "$(manifest_value userdata_previous_contents)" == erased-by-installer ]] \
+        || die "userdata 擦除策略不匹配"
+    [[ "$(manifest_value rootfs_segments)" == complete-prebuilt-filesystem ]] \
+        || die "大根卷分段不是完整预构建文件系统"
 fi
 [[ "$(manifest_value fstrim)" == "weekly-systemd-timer" ]] \
     || die "定期 TRIM 策略不匹配"
@@ -415,8 +507,21 @@ if [[ "$TARGET_PARTITION" == system ]]; then
     (( $(stat -c %s "$DATA_IMAGE") < DATA_PARTITION_SIZE )) \
         || die "data 镜像不小于 userdata 分区"
 fi
-(( $(stat -c %s "$IMAGE") < TARGET_PARTITION_SIZE )) \
-    || die "rootfs 镜像不小于 $TARGET_PARTITION 分区"
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    check_sha256 rootfs_system_image_sha256 "$ROOTFS_SYSTEM_IMAGE"
+    check_size rootfs_system_image_bytes "$ROOTFS_SYSTEM_IMAGE"
+    check_sha256 rootfs_cache_image_sha256 "$ROOTFS_CACHE_IMAGE"
+    check_size rootfs_cache_image_bytes "$ROOTFS_CACHE_IMAGE"
+    check_sha256 rootfs_userdata_image_sha256 "$ROOTFS_USERDATA_IMAGE"
+    check_size rootfs_userdata_image_bytes "$ROOTFS_USERDATA_IMAGE"
+fi
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    [[ "$(stat -c %s "$IMAGE")" == "$LARGE_ROOTFS_FILESYSTEM_SIZE" ]] \
+        || die "重组后的大根卷文件系统尺寸错误"
+else
+    (( $(stat -c %s "$IMAGE") < TARGET_PARTITION_SIZE )) \
+        || die "rootfs 镜像不小于 $TARGET_PARTITION 分区"
+fi
 (( $(stat -c %s "$BOOT_IMAGE") < BOOT_PARTITION_SIZE )) \
     || die "boot 镜像不小于 32 MiB boot 分区"
 
@@ -425,7 +530,7 @@ fsck_rc=0
 e2fsck -fn "$IMAGE" || fsck_rc=$?
 (( fsck_rc == 0 )) || die "e2fsck 只读检查失败，退出码 $fsck_rc"
 label="$(tune2fs -l "$IMAGE" | awk -F: '$1 == "Filesystem volume name" {sub(/^[[:space:]]+/, "", $2); print $2}')"
-[[ "$label" == "debian-$TARGET_PARTITION" ]] || die "ext4 标签不匹配：$label"
+[[ "$label" == "$ROOTFS_LABEL" ]] || die "ext4 标签不匹配：$label"
 uuid="$(tune2fs -l "$IMAGE" | awk -F: '$1 == "Filesystem UUID" {sub(/^[[:space:]]+/, "", $2); print $2}')"
 [[ "$uuid" == "$ROOTFS_UUID" ]] || die "ext4 UUID 不匹配：$uuid"
 hash_seed="$(tune2fs -l "$IMAGE" | awk -F: '$1 == "Directory Hash Seed" {sub(/^[[:space:]]+/, "", $2); print $2}')"
@@ -451,12 +556,12 @@ grep -Fqx '127.0.1.1 ufi210' <<<"$hosts_text" || die "ext4 内 hosts 未映射 u
 [[ "$(manifest_value hostname)" == "ufi210" ]] || die "manifest 主机名不是 ufi210"
 fstab="$(debugfs -R 'cat /etc/fstab' "$IMAGE" 2>/dev/null)"
 if [[ "$ROOTFS_AUTO_GROW" == enabled ]]; then
-    grep -Fqx "PARTLABEL=$TARGET_PARTITION / ext4 defaults,noatime,x-systemd.growfs 0 1" <<<"$fstab" \
+    grep -Fqx "$ROOTFS_DEVICE / ext4 defaults,noatime,x-systemd.growfs 0 1" <<<"$fstab" \
         || die "ext4 内 fstab 未启用 $TARGET_PARTITION 根分区自动扩容"
     debugfs -R 'stat /usr/lib/systemd/systemd-growfs' "$IMAGE" 2>/dev/null | grep -q '^Inode:' \
         || die "ext4 内缺少 systemd-growfs"
 else
-    grep -Fqx "PARTLABEL=$TARGET_PARTITION / ext4 defaults,noatime 0 1" <<<"$fstab" \
+    grep -Fqx "$ROOTFS_DEVICE / ext4 defaults,noatime 0 1" <<<"$fstab" \
         || die "ext4 内 fstab 未指向 $TARGET_PARTITION"
 fi
 if [[ "$TARGET_PARTITION" == system ]]; then
@@ -492,8 +597,6 @@ if [[ "$TARGET_PARTITION" == system ]]; then
     done
 fi
 
-tmp_dir="$(mktemp -d)"
-trap 'rm -rf -- "$tmp_dir"' EXIT
 mkdir -p "$tmp_dir/initramfs-root"
 gzip -dc "$INITRAMFS" | (cd "$tmp_dir/initramfs-root" && cpio -idmu --no-absolute-filenames 2>/dev/null)
 cmp -s "$INITRAMFS_INIT" "$tmp_dir/initramfs-root/init" \
@@ -516,10 +619,35 @@ file "$tmp_dir/initramfs-root/bin/busybox" | grep -q 'ELF 32-bit.*ARM.*staticall
     || die "纯 Debian initramfs 的 busybox 不是 32 位 ARM 静态 ELF"
 file "$tmp_dir/initramfs-root/system/bin/reboot" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
     || die "纯 Debian initramfs 的 reboot 兼容程序不是 32 位 ARM 静态 ELF"
+file "$tmp_dir/initramfs-root/usr/sbin/dmsetup" | grep -q 'ELF 32-bit.*ARM.*dynamically linked' \
+    || die "纯 Debian initramfs 的 dmsetup 不是 32 位 ARM 动态 ELF"
+readelf -d "$tmp_dir/initramfs-root/usr/sbin/dmsetup" \
+    "$tmp_dir/initramfs-root"/lib/arm-linux-gnueabihf/*.so* \
+    > "$tmp_dir/initramfs-needed.txt" 2>/dev/null \
+    || die "无法读取 initramfs dmsetup 动态依赖"
+for needed in libdevmapper.so.1.02.1 libc.so.6 libselinux.so.1 libudev.so.1 libm.so.6 libpcre2-8.so.0; do
+    grep -Fq "Shared library: [$needed]" "$tmp_dir/initramfs-needed.txt" \
+        || die "initramfs dmsetup 依赖闭包缺少：$needed"
+done
+qemu-arm-static -L "$tmp_dir/initramfs-root" \
+    "$tmp_dir/initramfs-root/usr/sbin/dmsetup" help \
+    > "$tmp_dir/initramfs-dmsetup-help.txt" 2>&1 \
+    || die "qemu-arm-static 无法执行 initramfs dmsetup"
+grep -Fq 'create <dev_name>' "$tmp_dir/initramfs-dmsetup-help.txt" \
+    || die "initramfs dmsetup 的 ARM 运行探针输出异常"
+[[ -L "$tmp_dir/initramfs-root/lib/ld-linux-armhf.so.3" ]] \
+    || die "initramfs 缺少 ARM 动态加载器链接"
+for runtime_path in \
+    lib/arm-linux-gnueabihf/ld-linux-armhf.so.3 \
+    lib/arm-linux-gnueabihf/libpcre2-8.so.0.11.2 \
+    lib/arm-linux-gnueabihf/libudev.so.1.7.5; do
+    [[ -f "$tmp_dir/initramfs-root/$runtime_path" ]] \
+        || die "initramfs dmsetup 运行库链接目标缺失：/$runtime_path"
+done
 cmp -s "$tmp_dir/initramfs-root/system/bin/reboot" \
     <(tar -xJOf "$ROOTFS_TARBALL" ./system/bin/reboot) \
     || die "纯 Debian initramfs 的 reboot 兼容程序与 rootfs 不一致"
-for applet in cut ip mount sha256sum stty switch_root udhcpd; do
+for applet in blockdev cut ip mount sha256sum stty switch_root udhcpd; do
     [[ -L "$tmp_dir/initramfs-root/bin/$applet" ]] \
         || die "纯 Debian initramfs 缺少 busybox applet：$applet"
 done
@@ -535,6 +663,23 @@ grep -Fq 'root=PARTLABEL=system)' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未限制接受 system 根分区"
 grep -Fq 'PARTNAME=$partlabel' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未按所选 GPT PARTNAME 查找根分区"
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    for initramfs_line in \
+        "root=/dev/mapper/ufi210-root" \
+        "system_sectors=$SYSTEM_PARTITION_SECTORS" \
+        "cache_sectors=$CACHE_PARTITION_SECTORS" \
+        "userdata_sectors=$USERDATA_PARTITION_SECTORS" \
+        "system_start=$SYSTEM_PARTITION_START" \
+        "cache_start=$CACHE_PARTITION_START" \
+        "userdata_lba=$USERDATA_PARTITION_START" \
+        "dmsetup create --readonly --noudevsync ufi210-root" \
+        "dmsetup create --noudevsync ufi210-root" \
+        "dmsetup mknodes ufi210-root" \
+        "ufi210.dm_probe=1"; do
+        grep -Fq "$initramfs_line" "$tmp_dir/initramfs-root/init" \
+            || die "大根卷 initramfs 缺少：$initramfs_line"
+    done
+fi
 tar -tJf "$ROOTFS_TARBALL" > "$tmp_dir/rootfs-files.txt"
 mkdir -p "$tmp_dir/rootfs-meta"
 tar -C "$tmp_dir/rootfs-meta" -xJf "$ROOTFS_TARBALL" \
@@ -1036,7 +1181,7 @@ sshd_test_line="$(grep -n '^ExecStartPre=/usr/sbin/sshd -t$' <<<"$ssh_dropin" | 
 [[ "$keygen_line" =~ ^[0-9]+$ && "$sshd_test_line" =~ ^[0-9]+$ && "$keygen_line" -lt "$sshd_test_line" ]] \
     || die "SSH host key 生成没有排在 sshd 配置检查之前"
 
-for package_name in adbd busybox-static dnsmasq hostapd iproute2 iw kmod libqmi-utils libqrtr-glib0 \
+for package_name in adbd busybox-static dmsetup dnsmasq hostapd iproute2 iw kmod libqmi-utils libqrtr-glib0 \
     modemmanager network-manager nftables openssh-server qrtr-tools rfkill rmtfs systemd systemd-sysv \
     systemd-timesyncd udev \
     usr-is-merged wireless-regdb wpasupplicant; do
@@ -1072,7 +1217,8 @@ assert header["name"] == f"deb-{target}"
 assert header["qcdt_size"] > 0
 cmdline = header["cmdline"].split()
 assert "reboot=warm" in cmdline
-assert f"root=PARTLABEL={target}" in cmdline
+expected_root = "/dev/mapper/ufi210-root" if target == "large-rootfs" else f"PARTLABEL={target}"
+assert f"root={expected_root}" in cmdline
 assert "rootfstype=ext4" in cmdline
 assert "rw" in cmdline
 assert "rootwait" in cmdline
