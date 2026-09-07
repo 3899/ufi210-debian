@@ -5,12 +5,20 @@ export LC_ALL=C.UTF-8
 
 PROJECT_ROOT="${PROJECT_ROOT_OVERRIDE:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 TARGET_PARTITION="${TARGET_PARTITION:-cache}"
+RESUME_VERIFIED_A="${RESUME_VERIFIED_A:-0}"
 BUILD_SCRIPT="${BUILD_SCRIPT:-$PROJECT_ROOT/scripts/build_debian_cache.sh}"
 VERIFY_SCRIPT="${VERIFY_SCRIPT:-$PROJECT_ROOT/scripts/verify_debian_cache.sh}"
 case "$TARGET_PARTITION" in
     cache|system) ;;
     *)
         printf '错误：TARGET_PARTITION 只允许 cache 或 system\n' >&2
+        exit 1
+        ;;
+esac
+case "$RESUME_VERIFIED_A" in
+    0|1) ;;
+    *)
+        printf '错误：RESUME_VERIFIED_A 只允许 0 或 1\n' >&2
         exit 1
         ;;
 esac
@@ -31,6 +39,9 @@ FILES=(
     WCNSS-FIRMWARE-MANIFEST.txt
     MPSS-FIRMWARE-MANIFEST.txt
 )
+if [[ "$TARGET_PARTITION" == system ]]; then
+    FILES+=("debian-bookworm-armhf-data.ext4")
+fi
 
 die() {
     printf '错误：%s\n' "$*" >&2
@@ -58,13 +69,23 @@ BUILD_A="$BUILD_ROOT/build-a"
 BUILD_B="$BUILD_ROOT/build-b"
 REPORT="$REPRO_ROOT/REPRODUCIBILITY.txt"
 
-rm -rf -- "$REPRO_ROOT" "$BUILD_A" "$BUILD_B"
-mkdir -p "$RUN_A" "$RUN_B" "$PUBLISH_DIR"
-
-printf '[1/5] 在独立目录执行第一轮固定快照构建\n'
-TARGET_PARTITION="$TARGET_PARTITION" FORCE=1 BUILD_DIR="$BUILD_A" OUT_DIR="$RUN_A" \
-    bash "$BUILD_SCRIPT"
-TARGET_PARTITION="$TARGET_PARTITION" OUT_DIR="$RUN_A" bash "$VERIFY_SCRIPT"
+if [[ "$RESUME_VERIFIED_A" == 1 ]]; then
+    printf '[1/5] 重新验收已完成的第一轮固定快照构建\n'
+    for file in "${FILES[@]}"; do
+        [[ -s "$RUN_A/$file" ]] || die "续跑缺少第一轮产物：$file"
+    done
+    rm -rf -- "$RUN_B" "$BUILD_B"
+    rm -f -- "$REPORT"
+    mkdir -p "$RUN_B" "$PUBLISH_DIR"
+    TARGET_PARTITION="$TARGET_PARTITION" OUT_DIR="$RUN_A" bash "$VERIFY_SCRIPT"
+else
+    rm -rf -- "$REPRO_ROOT" "$BUILD_A" "$BUILD_B"
+    mkdir -p "$RUN_A" "$RUN_B" "$PUBLISH_DIR"
+    printf '[1/5] 在独立目录执行第一轮固定快照构建\n'
+    TARGET_PARTITION="$TARGET_PARTITION" FORCE=1 BUILD_DIR="$BUILD_A" OUT_DIR="$RUN_A" \
+        bash "$BUILD_SCRIPT"
+    TARGET_PARTITION="$TARGET_PARTITION" OUT_DIR="$RUN_A" bash "$VERIFY_SCRIPT"
+fi
 
 printf '[2/5] 在独立目录执行第二轮固定快照构建\n'
 TARGET_PARTITION="$TARGET_PARTITION" FORCE=1 BUILD_DIR="$BUILD_B" OUT_DIR="$RUN_B" \

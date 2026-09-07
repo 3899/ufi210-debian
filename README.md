@@ -38,6 +38,8 @@ RAM、电源、USB、WCNSS 和 MPSS，再为对应硬件建立独立 target。
 - Debian 官方运行时软件源、`ca-certificates` 和 `curl`。
 - 原厂 aboot 通过 QCDT v3 直接启动，无需 lk2nd。
 - Debian rootfs 持久安装到 `system`，首次启动自动扩容到完整分区。
+- Android `userdata` 被重建为独立 `/data`，首次启动自动扩容到约 1.80 GiB；根分区与数据分区
+  合计约 3.0 GiB。
 - 普通 warm reboot 无需拔插，重启后仍进入 Debian。
 - 固定 USB RNDIS 与 ACM、RNDIS 上的 TCP ADB 和 SSH；RNDIS MAC 按设备稳定派生。
 - NetworkManager、完整 `nmcli`、简体中文 `nmtui`。
@@ -45,20 +47,25 @@ RAM、电源、USB、WCNSS 和 MPSS，再为对应硬件建立独立 target。
 - MPSS、QRTR、只读 RMTFS、BAM-DMUX、ModemManager、SIM 和 LTE。
 - NetworkManager nftables NAT；SSH 22 和 ADB 5555 只允许从 `usb0` 进入。
 - CPU thermal `step_wise` 与 cpufreq cooling，板级被动降频阈值为 75°C。
+- 根分区和 `/data` 使用 `noatime`，启用每周 `fstrim.timer`，不默认使用 eMMC swap。
 
-当前固定 RNDIS+ACM/TCP ADB system 候选已完成双构建逐字节一致、持久安装、boot 分区回读、
-rootfs 自动扩容、真实断电冷启动、20 次 `adbd` 热重启、10 次普通重启、20 次 Wi-Fi
-AP/managed 循环、10 分钟四核受控负载和 30 分钟综合监控。早期候选已完成 20 次 LTE
-拨号循环和 LTE/NAT 冒烟；当前候选仍需使用有效 SIM 完成 LTE 数据/DNS/NAT 最终回归。
+当前 system/data 候选已完成两次独立构建逐字节一致、从旧 Debian 到新候选的端到端
+持久安装、boot 分区回读、rootfs 和 `/data` 自动扩容、5 次普通重启、10 次
+`adbd` 热重启、10 分钟四核受控负载和 20 分钟综合监控。WCNSS 扫描、
+10 次 AP/managed 切换、MPSS/SIM 枚举、LTE 注册和 QMI DMS 启动校时也已在同一候选上通过。
+真实断电冷启动、20 轮 LTE 数据连接与运营商 DNS，以及隔离下游客户端的 nftables NAT 和
+NetworkManager DNS 代理回归均已通过。
 
 ## 写入边界
 
-- 安装器只持久写入 `system` 和 `boot`。
+- 安装器只持久写入 `system`、`userdata` 和 `boot`。
 - `system` 中原 Android 系统会被 Debian rootfs 覆盖。
+- `userdata` 的原 Android 数据会被永久擦除，并重建为 Debian `/data`。
 - `boot` 中写入 Linux kernel、initramfs 和唯一 DW01 DTB 的 QCDT v3。
-- GPT、aboot、recovery、modem、modemst1/2、fsg、persist 和 userdata 均不写入。
+- GPT、aboot、recovery、cache、modem、modemst1/2、fsg 和 persist 均不写入。
 - modem 与 persist 只读挂载；设备校准数据不写入、不打包、不公开哈希。
-- 断电和普通重启应直接进入 Debian；恢复 Android 必须刷回设备自己的 boot/system 备份或完整原厂包。
+- 断电和普通重启应直接进入 Debian；恢复 Android 必须使用设备自己的恢复资料重建 boot、system
+  和 userdata，或刷入完整原厂包。
 - 设备管理只使用 USB RNDIS/TCP ADB/SSH 或 ACM，不要求连接设备 Wi-Fi。
 
 完整安装与恢复流程见 [docs/release-install.md](docs/release-install.md)。
@@ -111,6 +118,7 @@ bash scripts/build_debian_system_reproducibly.sh
 ```text
 out/mainline/kernel/qcom-msm8909-zu02-dw01.dtb
 out/mainline/debian-system/debian-bookworm-armhf-system.ext4
+out/mainline/debian-system/debian-bookworm-armhf-data.ext4
 out/mainline/debian-system/boot-debian-system.img
 out/mainline/debian-system/BUILD-MANIFEST.txt
 out/mainline/debian-system/REPRODUCIBILITY.txt
@@ -130,7 +138,7 @@ python3 -m unittest -v \
   scripts.test_zu02_wwan_ip
 ```
 
-验收会核对镜像哈希和尺寸、ext4、自动扩容策略、主机名、root 密码哈希、服务、ARM ELF、
+验收会核对三张镜像的哈希和尺寸、两个 ext4、自动扩容策略、主机名、root 密码哈希、服务、ARM ELF、
 内核配置、DTB、QCDT、只读固件挂载、防火墙、可复现报告及公开边界。
 
 ## 安装
@@ -140,11 +148,12 @@ python3 -m unittest -v \
 `adb.exe` 和 `fastboot.exe` 或把它们放到发布包根目录。
 
 ```powershell
-.\scripts\install_debian_system.ps1 -ConfirmPersistentInstall
+.\scripts\install_debian_system.ps1 -ConfirmPersistentInstall -ConfirmEraseUserdata
 ```
 
 也可双击 `install.bat`。安装器先备份完整 boot，再核对型号、SoC、分区尺寸和镜像哈希，然后在
-一次 fastboot 会话中依次写 system 与 boot。写入后先 RAM 启动同一 boot 验证 system，再执行
+一次 fastboot 会话中依次写 system、擦除并写入 userdata，最后写 boot。写入后先 RAM 启动同一
+boot 验证 system 和 `/data`，再执行
 普通重启并用不同 `boot_id` 验证持久启动。安装过程中不会刷一个分区后重启一次。
 
 Debian 启动后：
@@ -162,7 +171,7 @@ ssh root@192.168.68.1
 
 ```sh
 cd /work
-bash scripts/package_public_release_candidate.sh m7-persistent-rc3
+bash scripts/package_public_release_candidate.sh <版本>
 ```
 
 公开候选包含：
@@ -183,7 +192,9 @@ ZIP 是 Windows fastboot 持久安装包；三个 `tar.xz` 分别提供项目源
 
 - 仅对 `zu02-dw01` target 完成实机验证。
 - 标准 Debian `adbd` 不实现主机侧 `adb reboot` 服务；使用项目提供的 ADB shell 兼容入口。
-- 有效 SIM 的 LTE 数据、DNS 和 NAT 最终回归尚未完成。
+- 已验证 LTE 数据、DNS 和 NAT；长期蜂窝持续流量耐久性不在首个候选声明范围内。
+- 会建立蜂窝数据连接的测试脚本默认拒绝执行，必须在确认 SIM 资费后显式传入
+  `-AllowCellularDataUsage`。
 - 当前只声明 LTE B1/B3/B5；不声明其他频段或运营商兼容性。
 - IPv6、短信、SIM 热插拔、多 Wi-Fi 客户端和故障注入不在首个候选声明范围内。
 - 9008 恢复必须使用设备自己的原厂备份。

@@ -325,6 +325,7 @@ def verify_release(project_root: Path, out_root: Path, version: str) -> None:
         built_root = project_root / "out/mainline/debian-system"
         for image_name in (
             "debian-bookworm-armhf-system.ext4",
+            "debian-bookworm-armhf-data.ext4",
             "boot-debian-system.img",
         ):
             if sha256_file(binary_root / image_name) != sha256_file(built_root / image_name):

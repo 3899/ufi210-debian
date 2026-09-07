@@ -18,6 +18,8 @@ SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$PROJECT_SOURCE_DATE_EPOCH}"
 VERIFY_SOURCE_REPRODUCIBILITY="${VERIFY_SOURCE_REPRODUCIBILITY:-1}"
 VERIFIED_DEBIAN_SOURCE_ARCHIVE="${VERIFIED_DEBIAN_SOURCE_ARCHIVE:-}"
 VERIFIED_DEBIAN_SOURCE_SHA256="${VERIFIED_DEBIAN_SOURCE_SHA256:-}"
+VERIFIED_KERNEL_SOURCE_ARCHIVE="${VERIFIED_KERNEL_SOURCE_ARCHIVE:-}"
+VERIFIED_KERNEL_SOURCE_SHA256="${VERIFIED_KERNEL_SOURCE_SHA256:-}"
 PACKAGE_SCRIPT="$PROJECT_ROOT/scripts/package_release_candidate.sh"
 COLLECTOR="$PROJECT_ROOT/scripts/collect_debian_sources.py"
 ARCHIVE_VERIFIER="$PROJECT_ROOT/scripts/verify_public_release.py"
@@ -39,6 +41,10 @@ done
 if [[ -n "$VERIFIED_DEBIAN_SOURCE_ARCHIVE" ]]; then
     [[ "$VERIFIED_DEBIAN_SOURCE_SHA256" =~ ^[0-9a-f]{64}$ ]] \
         || die "复用 Debian 对应源码归档时必须提供小写 SHA256"
+fi
+if [[ -n "$VERIFIED_KERNEL_SOURCE_ARCHIVE" ]]; then
+    [[ "$VERIFIED_KERNEL_SOURCE_SHA256" =~ ^[0-9a-f]{64}$ ]] \
+        || die "复用 Linux 对应源码归档时必须提供小写 SHA256"
 fi
 [[ -s "$PACKAGE_SCRIPT" && -s "$COLLECTOR" && -s "$ARCHIVE_VERIFIER" ]] \
     || die "缺少候选打包器、Debian 源码收集器或发布归档验收器"
@@ -68,6 +74,18 @@ if [[ -n "$VERIFIED_DEBIAN_SOURCE_ARCHIVE" ]]; then
     actual_source_hash="$(sha256sum "$VERIFIED_DEBIAN_SOURCE_ARCHIVE" | awk '{print $1}')"
     [[ "$actual_source_hash" == "$VERIFIED_DEBIAN_SOURCE_SHA256" ]] \
         || die "已验证 Debian 对应源码归档 SHA256 不匹配"
+fi
+if [[ -n "$VERIFIED_KERNEL_SOURCE_ARCHIVE" ]]; then
+    VERIFIED_KERNEL_SOURCE_ARCHIVE="$(realpath "$VERIFIED_KERNEL_SOURCE_ARCHIVE")"
+    [[ -s "$VERIFIED_KERNEL_SOURCE_ARCHIVE" ]] || die "已验证 Linux 对应源码归档不存在"
+    case "$VERIFIED_KERNEL_SOURCE_ARCHIVE" in
+        "$OUT_ROOT/$VERSION"|"$OUT_ROOT/$VERSION/"*)
+            die "复用的 Linux 源码归档不能位于将被重新生成的候选目录内"
+            ;;
+    esac
+    actual_kernel_source_hash="$(sha256sum "$VERIFIED_KERNEL_SOURCE_ARCHIVE" | awk '{print $1}')"
+    [[ "$actual_kernel_source_hash" == "$VERIFIED_KERNEL_SOURCE_SHA256" ]] \
+        || die "已验证 Linux 对应源码归档 SHA256 不匹配"
 fi
 
 OUT_ROOT="$OUT_ROOT" bash "$PACKAGE_SCRIPT" "$VERSION"
@@ -113,19 +131,30 @@ kernel_release="$(kernel_manifest_value kernel_release)"
     || die "内核参考配置与 manifest 不一致"
 kernel_source_key="${kernel_patch_sha256:0:12}-${kernel_reference_config_sha256:0:12}"
 kernel_checkout="$KERNEL_SOURCE_ROOT/linux-$kernel_source_key"
-[[ -d "$kernel_checkout/.git" ]] || die "缺少固定提交的内核 Git 工作树：$kernel_checkout"
-[[ "$(git -C "$kernel_checkout" rev-parse HEAD)" == "$kernel_commit" ]] \
-    || die "内核工作树提交与 manifest 不一致"
+if [[ -n "$VERIFIED_KERNEL_SOURCE_ARCHIVE" ]]; then
+    tar -tJf "$VERIFIED_KERNEL_SOURCE_ARCHIVE" \
+        | awk -F/ -v root="$kernel_source_name" \
+            '$1 != root || $0 ~ /(^|\/)\.\.(\/|$)/ { exit 1 }' \
+        || die "已验证 Linux 对应源码归档的根目录或路径边界无效"
+    tar -xJOf "$VERIFIED_KERNEL_SOURCE_ARCHIVE" \
+        "$kernel_source_name/UFI210-BUILD-METADATA.txt" >/dev/null \
+        || die "已验证 Linux 对应源码归档缺少构建元数据"
+    install -m 0644 "$VERIFIED_KERNEL_SOURCE_ARCHIVE" "$kernel_source_archive"
+    printf '复用同版本且已通过 SHA256 核对的 Linux 对应源码归档\n'
+else
+    [[ -d "$kernel_checkout/.git" ]] || die "缺少固定提交的内核 Git 工作树：$kernel_checkout"
+    [[ "$(git -C "$kernel_checkout" rev-parse HEAD)" == "$kernel_commit" ]] \
+        || die "内核工作树提交与 manifest 不一致"
 
-kernel_stage="$tmp_dir/$kernel_source_name"
-mkdir -p "$kernel_stage"
-printf '从固定提交生成完整 Linux 对应源码\n'
-git -C "$kernel_checkout" archive --format=tar "$kernel_commit" \
-    | tar -C "$kernel_stage" -xf -
-git -C "$kernel_stage" apply --no-index "$KERNEL_PATCH"
-install -m 0644 "$KERNEL_CONFIG" "$kernel_stage/.config"
-install -m 0644 "$KERNEL_PATCH" "$kernel_stage/UFI210-DTS.patch"
-cat > "$kernel_stage/UFI210-BUILD-METADATA.txt" <<EOF
+    kernel_stage="$tmp_dir/$kernel_source_name"
+    mkdir -p "$kernel_stage"
+    printf '从固定提交生成完整 Linux 对应源码\n'
+    git -C "$kernel_checkout" archive --format=tar "$kernel_commit" \
+        | tar -C "$kernel_stage" -xf -
+    git -C "$kernel_stage" apply --no-index "$KERNEL_PATCH"
+    install -m 0644 "$KERNEL_CONFIG" "$kernel_stage/.config"
+    install -m 0644 "$KERNEL_PATCH" "$kernel_stage/UFI210-DTS.patch"
+    cat > "$kernel_stage/UFI210-BUILD-METADATA.txt" <<EOF
 source_repository=$kernel_repo
 source_commit=$kernel_commit
 kernel_release=$kernel_release
@@ -133,26 +162,27 @@ applied_patch=UFI210-DTS.patch
 build_config=.config
 source_date_epoch=$SOURCE_DATE_EPOCH
 EOF
-for required in \
-    COPYING .config UFI210-DTS.patch UFI210-BUILD-METADATA.txt \
-    arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts; do
-    [[ -s "$kernel_stage/$required" ]] || die "内核对应源码缺少：$required"
-done
-cmp -s \
-    "$kernel_stage/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts" \
-    "$kernel_checkout/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts" \
-    || die "内核源码归档中的 DW01 DTS 与构建工作树不一致"
-tar --sort=name --format=posix \
-    --pax-option=delete=atime,delete=ctime \
-    --owner=0 --group=0 --numeric-owner \
-    --mtime="@$SOURCE_DATE_EPOCH" \
-    -C "$tmp_dir" -cf - "$kernel_source_name" \
-    | xz -T1 -3 > "$kernel_source_archive"
-xz -t "$kernel_source_archive"
-tar -xJOf "$kernel_source_archive" \
-    "$kernel_source_name/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts" \
-    >/dev/null \
-    || die "内核对应源码归档结构错误"
+    for required in \
+        COPYING .config UFI210-DTS.patch UFI210-BUILD-METADATA.txt \
+        arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts; do
+        [[ -s "$kernel_stage/$required" ]] || die "内核对应源码缺少：$required"
+    done
+    cmp -s \
+        "$kernel_stage/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts" \
+        "$kernel_checkout/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts" \
+        || die "内核源码归档中的 DW01 DTS 与构建工作树不一致"
+    tar --sort=name --format=posix \
+        --pax-option=delete=atime,delete=ctime \
+        --owner=0 --group=0 --numeric-owner \
+        --mtime="@$SOURCE_DATE_EPOCH" \
+        -C "$tmp_dir" -cf - "$kernel_source_name" \
+        | xz -T1 -3 > "$kernel_source_archive"
+    xz -t "$kernel_source_archive"
+    tar -xJOf "$kernel_source_archive" \
+        "$kernel_source_name/arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts" \
+        >/dev/null \
+        || die "内核对应源码归档结构错误"
+fi
 
 if [[ -n "$VERIFIED_DEBIAN_SOURCE_ARCHIVE" ]]; then
     mapfile -t reused_package_lists < <(
@@ -233,4 +263,4 @@ python3 "$ARCHIVE_VERIFIER" "$VERSION" --out-root "$OUT_ROOT"
 
 printf '公开候选发布材料完成：%s\n' "$release_dir"
 cat "$release_dir/SHA256SUMS"
-printf '注意：有效 SIM 蜂窝数据/NAT 和最终安装/恢复回归完成前仍只能发布 candidate。\n'
+printf '注意：会建立蜂窝数据连接的测试必须先确认资费，并显式传入 -AllowCellularDataUsage。\n'

@@ -24,12 +24,25 @@ start_recovery_network() {
         ip addr replace 192.168.68.1/24 dev usb0
         : > /run/udhcpd.leases
         udhcpd /etc/udhcpd.conf >/dev/kmsg 2>&1 || true
-        telnetd -b 192.168.68.1:23 -l /bin/sh
     fi
 }
 
 rescue_shell() {
-    log "$*; recovery shell is available on ACM and 192.168.68.1:23"
+    log "$*; recovery shell is available on USB ACM /dev/ttyGS0"
+    attempt=1
+    while [ "$attempt" -le 15 ]; do
+        [ -c /dev/ttyGS0 ] && break
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+    if [ -c /dev/ttyGS0 ]; then
+        stty -F /dev/ttyGS0 115200 sane 2>/dev/null || true
+        setsid sh -c \
+            'echo "UFI210 initramfs recovery"; echo "Run /system/bin/reboot bootloader to enter fastboot."; exec sh -i' \
+            </dev/ttyGS0 >/dev/ttyGS0 2>&1 &
+    else
+        log 'USB ACM ttyGS0 is unavailable'
+    fi
     setsid sh -i </dev/console >/dev/console 2>&1 &
     while :; do sleep 60; done
 }
@@ -91,7 +104,7 @@ mount -t ext4 -o rw,noatime "$rootdev" /sysroot \
     || rescue_shell 'Debian systemd is missing'
 
 log 'switching to Debian systemd'
-killall telnetd udhcpd 2>/dev/null || true
+killall udhcpd 2>/dev/null || true
 mount --move /dev /sysroot/dev
 mount --move /proc /sysroot/proc
 mount --move /sys /sysroot/sys

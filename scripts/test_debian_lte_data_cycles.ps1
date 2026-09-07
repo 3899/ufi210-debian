@@ -13,6 +13,7 @@ param(
     [string]$ProbeAddress = "1.1.1.1",
     [ValidateRange(1, 65535)]
     [int]$ProbePort = 53,
+    [switch]$AllowCellularDataUsage,
     [string]$OutputRoot = ""
 )
 
@@ -22,6 +23,10 @@ $ErrorActionPreference = "Stop"
 $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $SingleTest = Join-Path $PSScriptRoot "test_debian_lte_data.ps1"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
+
+if (-not $AllowCellularDataUsage) {
+    throw "此脚本会反复建立蜂窝数据连接并产生流量；确认资费后显式传入 -AllowCellularDataUsage"
+}
 
 function Write-Utf8File {
     param([string]$Path, [AllowEmptyString()][string]$Content)
@@ -50,6 +55,7 @@ for ($cycle = 1; $cycle -le $Cycles; $cycle++) {
         ProbeAddress = $ProbeAddress
         ProbePort = $ProbePort
         OutputRoot = $OutputDir
+        AllowCellularDataUsage = $true
     }
     if ($CarrierUsername) {
         $arguments.CarrierUsername = $CarrierUsername
@@ -69,12 +75,16 @@ for ($cycle = 1; $cycle -le $Cycles; $cycle++) {
     if ($cycleSummary -notmatch '(?m)^ipv4_configuration=NetworkManager-dispatcher\r?$') {
         throw "第 $cycle 轮未使用正式 NetworkManager dispatcher 配置 IPv4：$cycleSummaryPath"
     }
+    if ($cycleSummary -notmatch '(?m)^carrier_dns_resolution=passed\r?$') {
+        throw "第 $cycle 轮运营商 DNS 解析未通过：$cycleSummaryPath"
+    }
     $seconds = [Math]::Round(((Get-Date) - $started).TotalSeconds, 1)
     $rows.Add([pscustomobject]@{
         Cycle = $cycle
         Seconds = $seconds
         Result = "pass"
         Ipv4Configuration = "NetworkManager-dispatcher"
+        CarrierDnsResolution = "passed"
     })
     $rows | Export-Csv -LiteralPath (Join-Path $OutputDir "cycles.csv") -NoTypeInformation -Encoding UTF8
     Write-Host "LTE_DATA_CYCLE_PASS=$cycle/$Cycles seconds=$seconds"

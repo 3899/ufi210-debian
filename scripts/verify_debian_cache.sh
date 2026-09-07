@@ -8,6 +8,7 @@ OUT_DIR="${OUT_DIR:-$PROJECT_ROOT/out/mainline/debian-cache}"
 TARGET_PARTITION="${TARGET_PARTITION:-cache}"
 KERNEL_DIR="$PROJECT_ROOT/out/mainline/kernel"
 IMAGE="$OUT_DIR/debian-bookworm-armhf-${TARGET_PARTITION}.ext4"
+DATA_IMAGE="$OUT_DIR/debian-bookworm-armhf-data.ext4"
 BOOT_IMAGE="$OUT_DIR/boot-debian-${TARGET_PARTITION}.img"
 INITRAMFS_BUILD_SCRIPT="$PROJECT_ROOT/scripts/build_debian_initramfs.sh"
 INODE_TIME_TOOL="$PROJECT_ROOT/scripts/normalize_ext4_inode_times.py"
@@ -21,6 +22,7 @@ WCNSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wcnss-start"
 MPSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-mpss-start"
 MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-prepare"
 MODEM_REGISTER_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-register"
+MODEM_TIME_SYNC_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-time-sync"
 WWAN_IP_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wwan-ip"
 NMTUI_WRAPPER="$PROJECT_ROOT/patches/rootfs/usr/local/bin/nmtui"
 REBOOT_COMPAT_SOURCE="$PROJECT_ROOT/src/reboot-compat.c"
@@ -37,6 +39,11 @@ WCNSS_MANIFEST="$OUT_DIR/WCNSS-FIRMWARE-MANIFEST.txt"
 MPSS_MANIFEST="$OUT_DIR/MPSS-FIRMWARE-MANIFEST.txt"
 BOOT_PARTITION_SIZE=33554432
 MIN_ROOTFS_FREE_BYTES=33554432
+DATA_PARTITION_SIZE=1928314368
+DATA_FILESYSTEM_SIZE=1928310784
+DATA_UUID="89090000-0000-4000-8000-000000000029"
+DATA_HASH_SEED="89090000-0000-4000-8000-000000000030"
+DATA_LABEL="ufi210-data"
 PROJECT_SOURCE_DATE_EPOCH=1781860238
 DEBIAN_SNAPSHOT_TIMESTAMP="20260903T000000Z"
 DEBIAN_SNAPSHOT_MIRROR="https://snapshot.debian.org/archive/debian/$DEBIAN_SNAPSHOT_TIMESTAMP"
@@ -121,6 +128,9 @@ for required in "$IMAGE" "$BOOT_IMAGE" "$INITRAMFS" "$ROOTFS_TARBALL" "$PACKAGE_
     "$INITRAMFS_INIT" "$QCDT_BUILD_SCRIPT" "$QCDT" "$USB_GADGET_SCRIPT" "$USB_WATCHDOG_SCRIPT" "$WCNSS_NV"; do
     [[ -s "$required" ]] || die "缺少产物：$required"
 done
+if [[ "$TARGET_PARTITION" == system ]]; then
+    [[ -s "$DATA_IMAGE" ]] || die "缺少产物：$DATA_IMAGE"
+fi
 for firmware_name in "${MPSS_FIRMWARE_FILES[@]}"; do
     [[ -s "$MPSS_FIRMWARE_DIR/$firmware_name" ]] \
         || die "缺少 MPSS 固件输入：$firmware_name"
@@ -190,6 +200,27 @@ log "核对 manifest 与构建输入"
     || die "目标分区容量策略不匹配"
 [[ "$(manifest_value rootfs_auto_grow)" == "$ROOTFS_AUTO_GROW" ]] \
     || die "rootfs 自动扩容策略不匹配"
+if [[ "$TARGET_PARTITION" == system ]]; then
+    [[ "$(manifest_value data_partition)" == "userdata" ]] \
+        || die "data 目标分区策略不匹配"
+    [[ "$(manifest_value data_partition_bytes)" == "$DATA_PARTITION_SIZE" ]] \
+        || die "userdata 分区容量策略不匹配"
+    [[ "$(manifest_value data_filesystem_bytes)" == "$DATA_FILESYSTEM_SIZE" ]] \
+        || die "data 扩容后文件系统容量策略不匹配"
+    [[ "$(manifest_value data_uuid)" == "$DATA_UUID" ]] || die "data UUID 策略不匹配"
+    [[ "$(manifest_value data_hash_seed)" == "$DATA_HASH_SEED" ]] \
+        || die "data 目录哈希种子策略不匹配"
+    [[ "$(manifest_value data_label)" == "$DATA_LABEL" ]] || die "data 标签策略不匹配"
+    [[ "$(manifest_value data_mount)" == "/data" ]] || die "data 挂载点策略不匹配"
+    [[ "$(manifest_value data_auto_grow)" == "enabled" ]] \
+        || die "data 自动扩容策略不匹配"
+    [[ "$(manifest_value data_initial_directories)" == "apps,backups,srv" ]] \
+        || die "data 初始目录策略不匹配"
+    [[ "$(manifest_value userdata_previous_contents)" == "erased-by-installer" ]] \
+        || die "userdata 擦除策略不匹配"
+fi
+[[ "$(manifest_value fstrim)" == "weekly-systemd-timer" ]] \
+    || die "定期 TRIM 策略不匹配"
 [[ "$(manifest_value reboot_mode)" == "warm" ]] || die "重启模式不是 warm"
 [[ "$(manifest_value device_ip)" == "192.168.68.1" ]] || die "设备 IP 不匹配"
 [[ "$(manifest_value root_password)" == "simadmin" ]] || die "root 初始密码不匹配"
@@ -212,6 +243,7 @@ check_sha256 wcnss_start_script_sha256 "$WCNSS_START_SCRIPT"
 check_sha256 mpss_start_script_sha256 "$MPSS_START_SCRIPT"
 check_sha256 modem_prepare_script_sha256 "$MODEM_PREPARE_SCRIPT"
 check_sha256 modem_register_script_sha256 "$MODEM_REGISTER_SCRIPT"
+check_sha256 modem_time_sync_script_sha256 "$MODEM_TIME_SYNC_SCRIPT"
 check_sha256 wwan_ip_script_sha256 "$WWAN_IP_SCRIPT"
 check_sha256 nmtui_wrapper_sha256 "$NMTUI_WRAPPER"
 check_sha256 reboot_compat_source_sha256 "$REBOOT_COMPAT_SOURCE"
@@ -269,7 +301,7 @@ grep -q '^exec switch_root /sysroot /sbin/init$' "$INITRAMFS_INIT" \
     || die "WWAN IPv4 兼容策略不匹配"
 [[ "$(manifest_value resolv_conf)" == "NetworkManager-runtime" ]] \
     || die "DNS 运行时策略不匹配"
-[[ "$(manifest_value time_sync)" == "systemd-timesyncd" ]] \
+[[ "$(manifest_value time_sync)" == "qmi-dms-forward-only+systemd-timesyncd" ]] \
     || die "联网校时策略不匹配"
 [[ "$(manifest_value system_locale)" == "C.UTF-8" ]] \
     || die "系统默认 locale 不匹配"
@@ -377,6 +409,12 @@ check_sha256 boot_image_sha256 "$BOOT_IMAGE"
 check_sha256 rootfs_tarball_sha256 "$ROOTFS_TARBALL"
 check_size rootfs_image_bytes "$IMAGE"
 check_size boot_image_bytes "$BOOT_IMAGE"
+if [[ "$TARGET_PARTITION" == system ]]; then
+    check_sha256 data_image_sha256 "$DATA_IMAGE"
+    check_size data_image_bytes "$DATA_IMAGE"
+    (( $(stat -c %s "$DATA_IMAGE") < DATA_PARTITION_SIZE )) \
+        || die "data 镜像不小于 userdata 分区"
+fi
 (( $(stat -c %s "$IMAGE") < TARGET_PARTITION_SIZE )) \
     || die "rootfs 镜像不小于 $TARGET_PARTITION 分区"
 (( $(stat -c %s "$BOOT_IMAGE") < BOOT_PARTITION_SIZE )) \
@@ -421,12 +459,38 @@ else
     grep -Fqx "PARTLABEL=$TARGET_PARTITION / ext4 defaults,noatime 0 1" <<<"$fstab" \
         || die "ext4 内 fstab 未指向 $TARGET_PARTITION"
 fi
+if [[ "$TARGET_PARTITION" == system ]]; then
+    grep -Fqx 'PARTLABEL=userdata /data ext4 defaults,noatime,nosuid,nodev,nofail,x-systemd.growfs,x-systemd.device-timeout=30s 0 2' <<<"$fstab" \
+        || die "ext4 内 fstab 未正确配置 userdata /data 自动扩容"
+fi
 grep -q '^PARTLABEL=modem /firmware vfat ro,nosuid,nodev,noexec,fmask=0133,dmask=0022,nofail,x-systemd.device-timeout=30s ' <<<"$fstab" \
     || die "ext4 内 modem 固件分区未按只读策略挂载"
 grep -q '^PARTLABEL=persist /persist ext4 ro,noload,nosuid,nodev,noexec,nofail,x-systemd.device-timeout=30s ' <<<"$fstab" \
     || die "ext4 内 persist 校准分区未按只读策略挂载"
 systemd_stat="$(debugfs -R 'stat /usr/lib/systemd/systemd' "$IMAGE" 2>/dev/null)"
 grep -q '^Inode:' <<<"$systemd_stat" || die "ext4 内缺少 systemd"
+
+if [[ "$TARGET_PARTITION" == system ]]; then
+    log "只读检查 userdata data ext4 文件系统"
+    data_fsck_rc=0
+    e2fsck -fn "$DATA_IMAGE" || data_fsck_rc=$?
+    (( data_fsck_rc == 0 )) || die "data e2fsck 只读检查失败，退出码 $data_fsck_rc"
+    data_label="$(tune2fs -l "$DATA_IMAGE" | awk -F: '$1 == "Filesystem volume name" {sub(/^[[:space:]]+/, "", $2); print $2}')"
+    [[ "$data_label" == "$DATA_LABEL" ]] || die "data ext4 标签不匹配：$data_label"
+    data_uuid="$(tune2fs -l "$DATA_IMAGE" | awk -F: '$1 == "Filesystem UUID" {sub(/^[[:space:]]+/, "", $2); print $2}')"
+    [[ "$data_uuid" == "$DATA_UUID" ]] || die "data ext4 UUID 不匹配：$data_uuid"
+    data_hash_seed="$(tune2fs -l "$DATA_IMAGE" | awk -F: '$1 == "Directory Hash Seed" {sub(/^[[:space:]]+/, "", $2); print $2}')"
+    [[ "$data_hash_seed" == "$DATA_HASH_SEED" ]] \
+        || die "data ext4 目录哈希种子不匹配：$data_hash_seed"
+    data_block_size="$(tune2fs -l "$DATA_IMAGE" | awk -F: '$1 == "Block size" {sub(/^[[:space:]]+/, "", $2); print $2}')"
+    [[ "$data_block_size" == "4096" ]] || die "data ext4 block size 不匹配：$data_block_size"
+    python3 "$INODE_TIME_TOOL" verify "$DATA_IMAGE" "$PROJECT_SOURCE_DATE_EPOCH" \
+        || die "data ext4 inode 时间字段未归一化"
+    for data_dir in apps backups srv; do
+        debugfs -R "stat /$data_dir" "$DATA_IMAGE" 2>/dev/null | grep -q '^Inode:' \
+            || die "data ext4 缺少初始目录：/$data_dir"
+    done
+fi
 
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf -- "$tmp_dir"' EXIT
@@ -450,10 +514,21 @@ check_initramfs_regdb_signature_hash="$(sha256sum "$tmp_dir/initramfs-root/lib/f
     || die "initramfs regulatory.db.p7s SHA256 与 manifest 不匹配"
 file "$tmp_dir/initramfs-root/bin/busybox" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
     || die "纯 Debian initramfs 的 busybox 不是 32 位 ARM 静态 ELF"
-for applet in cut ip mount sha256sum switch_root telnetd udhcpd; do
+file "$tmp_dir/initramfs-root/system/bin/reboot" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
+    || die "纯 Debian initramfs 的 reboot 兼容程序不是 32 位 ARM 静态 ELF"
+cmp -s "$tmp_dir/initramfs-root/system/bin/reboot" \
+    <(tar -xJOf "$ROOTFS_TARBALL" ./system/bin/reboot) \
+    || die "纯 Debian initramfs 的 reboot 兼容程序与 rootfs 不一致"
+for applet in cut ip mount sha256sum stty switch_root udhcpd; do
     [[ -L "$tmp_dir/initramfs-root/bin/$applet" ]] \
         || die "纯 Debian initramfs 缺少 busybox applet：$applet"
 done
+[[ ! -e "$tmp_dir/initramfs-root/bin/telnetd" ]] \
+    || die "纯 Debian initramfs 不得开放 telnetd"
+grep -Fq 'recovery shell is available on USB ACM /dev/ttyGS0' "$tmp_dir/initramfs-root/init" \
+    || die "纯 Debian initramfs 未提供 USB ACM 救援说明"
+grep -Fq '/system/bin/reboot bootloader' "$tmp_dir/initramfs-root/init" \
+    || die "纯 Debian initramfs 未提供进入 fastboot 的救援命令"
 grep -Fq 'root=PARTLABEL=cache)' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未限制接受 cache 根分区"
 grep -Fq 'root=PARTLABEL=system)' "$tmp_dir/initramfs-root/init" \
@@ -500,6 +575,7 @@ for required_path in \
     ./etc/systemd/system/zu02-mpss.service \
     ./etc/systemd/system/zu02-modem-prepare.service \
     ./etc/systemd/system/zu02-modem-register.service \
+    ./etc/systemd/system/ufi210-modem-time-sync.service \
     ./etc/systemd/system/zu02-firewall.service \
     ./etc/systemd/system/rmtfs.service.d/10-zu02-read-only.conf \
     ./etc/systemd/system/ModemManager.service.d/10-zu02-dpm.conf \
@@ -507,11 +583,13 @@ for required_path in \
     ./etc/systemd/system/multi-user.target.wants/adbd.service \
     ./etc/systemd/system/multi-user.target.wants/zu02-usb-gadget.service \
     ./etc/systemd/system/timers.target.wants/zu02-usb-watchdog.timer \
+    ./etc/systemd/system/timers.target.wants/fstrim.timer \
     ./etc/systemd/system/multi-user.target.wants/zu02-usb-network.service \
     ./etc/systemd/system/multi-user.target.wants/zu02-wcnss.service \
     ./etc/systemd/system/multi-user.target.wants/zu02-mpss.service \
     ./etc/systemd/system/multi-user.target.wants/zu02-modem-prepare.service \
     ./etc/systemd/system/multi-user.target.wants/zu02-modem-register.service \
+    ./etc/systemd/system/multi-user.target.wants/ufi210-modem-time-sync.service \
     ./etc/systemd/system/sysinit.target.wants/zu02-firewall.service \
     ./etc/systemd/system/multi-user.target.wants/qrtr-ns.service \
     ./etc/systemd/system/multi-user.target.wants/rmtfs.service \
@@ -557,6 +635,7 @@ for required_path in \
     ./usr/sbin/nft \
     ./usr/sbin/zu02-modem-prepare \
     ./usr/sbin/zu02-modem-register \
+    ./usr/sbin/ufi210-modem-time-sync \
     ./usr/sbin/zu02-firewall \
     ./usr/sbin/zu02-mpss-start \
     ./usr/sbin/zu02-usb-gadget \
@@ -593,10 +672,8 @@ root_shadow="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/shadow | awk -F: '$1 == "root" 
 tar -xJOf "$ROOTFS_TARBALL" ./usr/lib/android-sdk/platform-tools/adbd > "$tmp_dir/adbd"
 file "$tmp_dir/adbd" | grep -q 'ELF 32-bit.*ARM' || die "adbd 不是 32 位 ARM ELF"
 tar -xJOf "$ROOTFS_TARBALL" ./system/bin/reboot > "$tmp_dir/reboot-compat"
-file "$tmp_dir/reboot-compat" | grep -q 'ELF 32-bit.*ARM' \
-    || die "ADB reboot 兼容程序不是 32 位 ARM ELF"
-readelf -l "$tmp_dir/reboot-compat" | grep -Fq '/lib/ld-linux-armhf.so.3' \
-    || die "ADB reboot 兼容程序的 ARM 动态解释器不匹配"
+file "$tmp_dir/reboot-compat" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
+    || die "ADB reboot 兼容程序不是 32 位 ARM 静态 ELF"
 [[ "$(sha256sum "$tmp_dir/reboot-compat" | awk '{print $1}')" == \
     "$(manifest_value reboot_compat_binary_sha256)" ]] \
     || die "ADB reboot 兼容程序哈希不匹配"
@@ -753,6 +830,22 @@ grep -Fq -- "--set-allowed-modes='3g|4g'" <<<"$modem_register_script" \
     || die "modem 默认模式脚本未启用 3G+4G"
 grep -q '^        --set-preferred-mode=4g; then$' <<<"$modem_register_script" \
     || die "modem 默认模式脚本未优先 4G"
+modem_time_sync_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-modem-time-sync.service)"
+grep -q '^Requires=zu02-modem-register.service$' <<<"$modem_time_sync_service" \
+    || die "基带校时服务未依赖 modem 注册服务"
+grep -q '^After=zu02-modem-register.service systemd-timesyncd.service$' <<<"$modem_time_sync_service" \
+    || die "基带校时服务启动顺序不匹配"
+grep -q '^ExecStart=/usr/sbin/ufi210-modem-time-sync$' <<<"$modem_time_sync_service" \
+    || die "基带校时服务命令不匹配"
+modem_time_sync_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-modem-time-sync)"
+grep -Fq -- '--dms-get-time' <<<"$modem_time_sync_script" \
+    || die "基带校时脚本未读取 QMI DMS 时间"
+grep -q '^minimum_unix_seconds=1704067200$' <<<"$modem_time_sync_script" \
+    || die "基带校时脚本最小可信时间不匹配"
+grep -q '^maximum_unix_seconds=2147483647$' <<<"$modem_time_sync_script" \
+    || die "基带校时脚本最大可信时间不匹配"
+grep -Fq 'if [ "$modem_unix_seconds" -le $((current_unix_seconds + 5)) ]; then' \
+    <<<"$modem_time_sync_script" || die "基带校时脚本可能向后拨动系统时钟"
 wwan_ip_script="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/NetworkManager/dispatcher.d/90-zu02-wwan-ip)"
 grep -q '^    wwan0|wwan0qmi0) ;;$' <<<"$wwan_ip_script" \
     || die "WWAN dispatcher 未限制到目标 modem 接口"
@@ -1014,5 +1107,9 @@ vmlinuz_bytes="$(stat -c %s "$KERNEL_DIR/vmlinuz")"
 log "Debian ${TARGET_PARTITION} 静态验收全部通过"
 printf 'rootfs=%s\n' "$IMAGE"
 printf 'rootfs_sha256=%s\n' "$(manifest_value rootfs_image_sha256)"
+if [[ "$TARGET_PARTITION" == system ]]; then
+    printf 'data=%s\n' "$DATA_IMAGE"
+    printf 'data_sha256=%s\n' "$(manifest_value data_image_sha256)"
+fi
 printf 'boot=%s\n' "$BOOT_IMAGE"
 printf 'boot_sha256=%s\n' "$(manifest_value boot_image_sha256)"

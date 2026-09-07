@@ -9,6 +9,7 @@ OUTPUT="${OUTPUT:?必须设置 OUTPUT}"
 BUILD_DIR="${BUILD_DIR:-$PROJECT_ROOT/.build/debian-initramfs}"
 INIT_SCRIPT="${INIT_SCRIPT:-$PROJECT_ROOT/patches/initramfs/init-debian.sh}"
 USB_GADGET_SCRIPT="${USB_GADGET_SCRIPT:-$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-gadget}"
+REBOOT_COMPAT="${REBOOT_COMPAT:-$ROOTFS/system/bin/reboot}"
 REGULATORY_DB="${REGULATORY_DB:?必须设置 REGULATORY_DB}"
 REGULATORY_DB_SIGNATURE="${REGULATORY_DB_SIGNATURE:?必须设置 REGULATORY_DB_SIGNATURE}"
 PROJECT_SOURCE_DATE_EPOCH=1781860238
@@ -24,7 +25,7 @@ die() {
 for command_name in cpio file find gzip install readlink realpath sort touch; do
     command -v "$command_name" >/dev/null 2>&1 || die "缺少命令：$command_name"
 done
-for required in "$INIT_SCRIPT" "$USB_GADGET_SCRIPT" "$REGULATORY_DB" "$REGULATORY_DB_SIGNATURE"; do
+for required in "$INIT_SCRIPT" "$USB_GADGET_SCRIPT" "$REBOOT_COMPAT" "$REGULATORY_DB" "$REGULATORY_DB_SIGNATURE"; do
     [[ -s "$required" ]] || die "缺少输入文件：$required"
 done
 case "$(realpath -m "$BUILD_DIR")" in
@@ -41,19 +42,22 @@ done
 [[ -n "$busybox" ]] || die "Debian rootfs 缺少 busybox-static"
 file "$busybox" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
     || die "busybox 不是 32 位 ARM 静态 ELF"
+file "$REBOOT_COMPAT" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
+    || die "initramfs reboot 兼容程序不是 32 位 ARM 静态 ELF"
 
 stage="$BUILD_DIR/root"
 rm -rf -- "$stage"
-mkdir -p "$stage"/{bin,sbin,dev,proc,sys,run,sysroot,etc,lib/firmware}
+mkdir -p "$stage"/{bin,sbin,dev,proc,sys,run,sysroot,etc,lib/firmware,system/bin}
 install -m 0755 "$busybox" "$stage/bin/busybox"
 install -m 0755 "$INIT_SCRIPT" "$stage/init"
 install -m 0755 "$USB_GADGET_SCRIPT" "$stage/sbin/zu02-usb-gadget"
+install -m 0755 "$REBOOT_COMPAT" "$stage/system/bin/reboot"
 install -m 0644 "$REGULATORY_DB" "$stage/lib/firmware/regulatory.db"
 install -m 0644 "$REGULATORY_DB_SIGNATURE" "$stage/lib/firmware/regulatory.db.p7s"
 
 applets=(
     cat cut echo find grep head hostname ip killall ln ls mkdir mount mountpoint
-    readlink rm sed setsid sh sha256sum sleep switch_root telnetd udhcpd umount wc
+    readlink rm sed setsid sh sha256sum sleep stty switch_root udhcpd umount wc
 )
 for applet in "${applets[@]}"; do
     ln -s busybox "$stage/bin/$applet"

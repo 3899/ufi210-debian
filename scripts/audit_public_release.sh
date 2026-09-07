@@ -98,14 +98,14 @@ audit_source_tree() {
 }
 
 audit_binary_tree() {
-    local path rel manifest rootfs_hash boot_hash
+    local path rel manifest rootfs_hash data_hash boot_hash
     local count=0
 
     log "审计面向用户的候选固件树：$TARGET"
     while IFS= read -r -d '' path; do
         rel="${path#"$TARGET"/}"
         case "$rel" in
-            LICENSE|LICENSING.md|README.md|RELEASE-NOTES.md|INSTALL-MANIFEST.txt|SHA256SUMS|debian-bookworm-armhf-system.ext4|boot-debian-system.img|install.bat|enter-fastboot.bat) ;;
+            LICENSE|LICENSING.md|README.md|RELEASE-NOTES.md|INSTALL-MANIFEST.txt|SHA256SUMS|debian-bookworm-armhf-system.ext4|debian-bookworm-armhf-data.ext4|boot-debian-system.img|install.bat|enter-fastboot.bat) ;;
             LICENSES/MIT.txt|LICENSES/GPL-2.0-only.txt) ;;
             scripts/install_debian_system.ps1|scripts/enter_fastboot.ps1) ;;
             *) die "用户固件包出现白名单外文件：$rel" ;;
@@ -123,7 +123,7 @@ audit_binary_tree() {
         README.md RELEASE-NOTES.md INSTALL-MANIFEST.txt SHA256SUMS \
         LICENSE LICENSING.md LICENSES/MIT.txt LICENSES/GPL-2.0-only.txt \
         install.bat enter-fastboot.bat scripts/install_debian_system.ps1 scripts/enter_fastboot.ps1 \
-        debian-bookworm-armhf-system.ext4 boot-debian-system.img; do
+        debian-bookworm-armhf-system.ext4 debian-bookworm-armhf-data.ext4 boot-debian-system.img; do
         [[ -s "$TARGET/$required" ]] || die "用户固件包缺少：$required"
     done
 
@@ -139,9 +139,22 @@ audit_binary_tree() {
         'debian_suite=bookworm' \
         'target_partition=system' \
         'target_partition_bytes=1288491008' \
-        'persistent_partitions=boot,system' \
+        'persistent_partitions=boot,system,userdata' \
         'android_system_partition=overwritten' \
+        'android_userdata_partition=erased' \
         'rootfs_auto_grow=enabled' \
+        'data_partition=userdata' \
+        'data_partition_bytes=1928314368' \
+        'data_filesystem_bytes=1928310784' \
+        'data_uuid=89090000-0000-4000-8000-000000000029' \
+        'data_label=ufi210-data' \
+        'data_mount=/data' \
+        'data_mount_options=defaults,noatime,nosuid,nodev,nofail,x-systemd.growfs,x-systemd.device-timeout=30s' \
+        'data_auto_grow=enabled' \
+        'data_initial_directories=apps,backups,srv' \
+        'userdata_previous_contents=erased-by-installer' \
+        'fstrim=weekly-systemd-timer' \
+        'time_sync=qmi-dms-forward-only+systemd-timesyncd' \
         'boot_mode=stock-aboot-direct-qcdt' \
         'bootloader_changes=none' \
         'reboot_mode=warm' \
@@ -171,16 +184,21 @@ audit_binary_tree() {
         'device_calibration=not-packaged' \
         'platform_tools=required-not-bundled' \
         'rootfs_image=debian-bookworm-armhf-system.ext4' \
+        'data_image=debian-bookworm-armhf-data.ext4' \
         'boot_image=boot-debian-system.img'; do
         grep -Fqx "$field" "$manifest" || die "安装清单缺少或不匹配：$field"
     done
 
     rootfs_hash="$(sed -n 's/^rootfs_image_sha256=//p' "$manifest")"
+    data_hash="$(sed -n 's/^data_image_sha256=//p' "$manifest")"
     boot_hash="$(sed -n 's/^boot_image_sha256=//p' "$manifest")"
-    [[ "$rootfs_hash" =~ ^[0-9a-f]{64}$ && "$boot_hash" =~ ^[0-9a-f]{64}$ ]] \
+    [[ "$rootfs_hash" =~ ^[0-9a-f]{64}$ && "$data_hash" =~ ^[0-9a-f]{64}$ \
+        && "$boot_hash" =~ ^[0-9a-f]{64}$ ]] \
         || die "安装清单镜像哈希格式错误"
     [[ "$rootfs_hash" == "$(sha256sum "$TARGET/debian-bookworm-armhf-system.ext4" | awk '{print $1}')" ]] \
         || die "安装清单 rootfs 哈希不匹配"
+    [[ "$data_hash" == "$(sha256sum "$TARGET/debian-bookworm-armhf-data.ext4" | awk '{print $1}')" ]] \
+        || die "安装清单 data 哈希不匹配"
     [[ "$boot_hash" == "$(sha256sum "$TARGET/boot-debian-system.img" | awk '{print $1}')" ]] \
         || die "安装清单 boot 哈希不匹配"
 

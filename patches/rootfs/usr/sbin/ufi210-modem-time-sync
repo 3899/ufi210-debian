@@ -1,0 +1,59 @@
+#!/bin/sh
+set -eu
+
+qmi_device="${QMI_DEVICE:-/dev/wwan0qmi0}"
+state_file="${MODEM_TIME_STATE_FILE:-/run/ufi210/modem-time-sync}"
+minimum_unix_seconds=1704067200
+maximum_unix_seconds=2147483647
+attempt=0
+
+write_state() {
+    umask 022
+    {
+        printf 'source=%s\n' "$1"
+        printf 'action=%s\n' "$2"
+        printf 'unix_seconds=%s\n' "$3"
+    } > "$state_file.tmp"
+    mv -f "$state_file.tmp" "$state_file"
+}
+
+mkdir -p "$(dirname "$state_file")"
+
+while [ "$attempt" -lt 60 ]; do
+    attempt=$((attempt + 1))
+    output="$(LC_ALL=C qmicli -d "$qmi_device" -p --dms-get-time 2>/dev/null || true)"
+    system_milliseconds="$(printf '%s\n' "$output" \
+        | sed -n "s/^[[:space:]]*System time: '\([0-9][0-9]*\) (ms).*/\1/p")"
+    case "$system_milliseconds" in
+        ''|*[!0-9]*)
+            sleep 1
+            continue
+            ;;
+    esac
+
+    # QMI DMS system time is milliseconds since the GPS epoch (1980-01-06 UTC).
+    modem_unix_seconds=$((system_milliseconds / 1000 + 315964800))
+    if [ "$modem_unix_seconds" -lt "$minimum_unix_seconds" ] \
+        || [ "$modem_unix_seconds" -gt "$maximum_unix_seconds" ]; then
+        sleep 1
+        continue
+    fi
+
+    current_unix_seconds="$(date -u +%s)"
+    if [ "$modem_unix_seconds" -le $((current_unix_seconds + 5)) ]; then
+        write_state qmi-dms not-needed "$modem_unix_seconds"
+        echo "ufi210-modem-time-sync: system clock is not behind trusted modem time"
+        exit 0
+    fi
+
+    date -u -s "@$modem_unix_seconds" >/dev/null
+    mkdir -p /var/lib/systemd/timesync
+    touch /var/lib/systemd/timesync/clock
+    write_state qmi-dms updated "$modem_unix_seconds"
+    echo "ufi210-modem-time-sync: advanced system clock from QMI DMS time"
+    exit 0
+done
+
+write_state none unavailable 0
+echo "ufi210-modem-time-sync: valid QMI DMS time was unavailable; NTP remains enabled" >&2
+exit 0

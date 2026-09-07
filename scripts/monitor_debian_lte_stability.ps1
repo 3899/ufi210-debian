@@ -18,6 +18,7 @@ param(
     [string]$ProbeAddress = "1.1.1.1",
     [string]$AdbSerial = "192.168.68.1:5555",
     [string]$DeviceIp = "192.168.68.1",
+    [switch]$AllowCellularDataUsage,
     [string]$OutputRoot = ""
 )
 
@@ -35,8 +36,12 @@ $CleanupUnit = "zu02-lte-stability-cleanup"
 $CleanupScript = "/run/zu02-lte-stability-cleanup.sh"
 $ModemStateFile = "/run/zu02-lte-stability-mmcli.txt"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
-$Services = "zu02-firewall zu02-usb-gadget adbd zu02-usb-network ssh dnsmasq NetworkManager zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register serial-getty@ttyGS0.service"
-$ExpectedActiveServices = 15
+$Services = "zu02-firewall zu02-usb-gadget adbd zu02-usb-network ssh dnsmasq NetworkManager zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync serial-getty@ttyGS0.service"
+$ExpectedActiveServices = 16
+
+if (-not $AllowCellularDataUsage) {
+    throw "此脚本会持续使用蜂窝数据流量；确认资费后显式传入 -AllowCellularDataUsage"
+}
 
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
     $adbCommand = Get-Command adb.exe -ErrorAction SilentlyContinue
@@ -185,6 +190,7 @@ findmnt -nro SOURCE,FSTYPE,OPTIONS /persist
 grep '^PARTLABEL=persist /persist ext4 ro,noload,' /etc/fstab
 command -v nft
 command -v systemd-run
+command -v timeout
 nft list table inet zu02_firewall | grep -q 'wwan0'
 nft list table inet zu02_firewall | grep -q 'drop'
 mmcli -m any --output-keyvalue | grep '^modem.generic.state *: registered$'
@@ -196,7 +202,8 @@ if ($preflight.Text -notmatch 'argv\[\]=/usr/bin/rmtfs -r -P -s' -or
     $preflight.Text -notmatch '(?m)^\S+\s+vfat\s+ro(?:,|$)' -or
     $preflight.Text -notmatch '(?m)^\S+\s+ext4\s+ro(?:,|$)' -or
     $preflight.Text -notmatch '(?m)^PARTLABEL=persist /persist ext4 ro,noload,' -or
-    $preflight.Text -notmatch '(?m)^/usr/bin/systemd-run\r?$') {
+    $preflight.Text -notmatch '(?m)^/usr/bin/systemd-run\r?$' -or
+    $preflight.Text -notmatch '(?m)^/usr/bin/timeout\r?$') {
     throw "长期 LTE 测试的只读保护或工具预检失败；查看 $OutputDir\preflight.txt"
 }
 
@@ -358,10 +365,51 @@ nft list ruleset | grep -q 'nm-shared-__HOST__'
 nft list ruleset | grep -q 'masquerade'
 dns=$(awk '/^nameserver[[:space:]]/{print $2; exit}' /run/NetworkManager/resolv.conf)
 test -n "$dns"
-ip netns exec '__NAMESPACE__' ping -c 2 -W 5 '__PROBE_ADDRESS__' >/dev/null
-ip netns exec '__NAMESPACE__' busybox nc -w 8 '__PROBE_ADDRESS__' 53 </dev/null
-lookup=$(ip netns exec '__NAMESPACE__' busybox nslookup debian.org "$dns")
-printf '%s\n' "$lookup" | grep -q 'debian.org'
+public_icmp_ok=0
+attempt=1
+while [ "$attempt" -le 3 ]; do
+    if timeout -k 2s 12s ip netns exec '__NAMESPACE__' ping -c 2 -W 5 '__PROBE_ADDRESS__' >/dev/null 2>&1; then
+        public_icmp_ok=1
+        break
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+done
+test "$public_icmp_ok" -eq 1
+printf 'PUBLIC_ICMP=passed\n'
+
+public_tcp_ok=0
+attempt=1
+while [ "$attempt" -le 3 ]; do
+    if timeout -k 2s 12s ip netns exec '__NAMESPACE__' busybox nc -w 8 '__PROBE_ADDRESS__' 53 </dev/null >/dev/null 2>&1; then
+        public_tcp_ok=1
+        break
+    fi
+    sleep 1
+    attempt=$((attempt + 1))
+done
+test "$public_tcp_ok" -eq 1
+printf 'PUBLIC_TCP=passed\n'
+
+probe_dns() {
+    server="$1"
+    attempt=1
+    while [ "$attempt" -le 3 ]; do
+        lookup=$(timeout -k 2s 12s ip netns exec '__NAMESPACE__' busybox nslookup ipv4only.arpa "$server" 2>&1) || true
+        if printf '%s\n' "$lookup" | grep -q 'ipv4only.arpa' &&
+           printf '%s\n' "$lookup" | grep -Eq '^Address([[:space:]][0-9]+)?:[[:space:]]+192\.0\.0\.(170|171)$'; then
+            return 0
+        fi
+        sleep 2
+        attempt=$((attempt + 1))
+    done
+    printf '%s\n' "$lookup" >&2
+    return 1
+}
+probe_dns "$dns"
+printf 'CARRIER_DNS=passed\n'
+probe_dns 192.168.77.1
+printf 'SHARED_DNS_PROXY=passed\n'
 printf 'PUBLIC_CONNECTIVITY=passed\n'
 printf 'TEMP_MAX='; sort -nr /sys/class/thermal/thermal_zone*/temp | head -n 1
 sed -n 's/^MemAvailable:[[:space:]]*\([0-9][0-9]*\).*/MEM_AVAILABLE_KB=\1/p' /proc/meminfo
@@ -478,6 +526,10 @@ try {
             $probe.Text -notmatch '(?m)^MODEM_STATE=(?:registered|connected)\r?$' -or
             $probe.Text -notmatch '(?m)^PACKET_STATE=attached\r?$' -or
             $probe.Text -notmatch '(?m)^CONNECTED_BEARERS=1\r?$' -or
+            $probe.Text -notmatch '(?m)^PUBLIC_ICMP=passed\r?$' -or
+            $probe.Text -notmatch '(?m)^PUBLIC_TCP=passed\r?$' -or
+            $probe.Text -notmatch '(?m)^CARRIER_DNS=passed\r?$' -or
+            $probe.Text -notmatch '(?m)^SHARED_DNS_PROXY=passed\r?$' -or
             $probe.Text -notmatch '(?m)^PUBLIC_CONNECTIVITY=passed\r?$' -or
             $temperatureMillic -gt 85000 -or $memAvailableKb -lt 32768) {
             throw "长期 LTE 探针不匹配：`r`n$($probe.Text)"
@@ -573,6 +625,10 @@ $summary = @(
     "downstream=isolated-network-namespace-veth"
     "routing_firewall=NetworkManager-nftables"
     "public_connectivity_probes=$probeCount"
+    "public_icmp_probes=$probeCount"
+    "public_tcp_probes=$probeCount"
+    "carrier_dns_probes=$probeCount"
+    "shared_dns_proxy_probes=$probeCount"
     "management_ping_samples=$($pingSamples.Count)"
     "management_ping_failures=0"
     "bearer_tx_growth_bytes=$($lastBearerTxBytes - $firstBearerTxBytes)"

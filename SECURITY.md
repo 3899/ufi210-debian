@@ -7,8 +7,9 @@
 
 ## 固定安全边界
 
-- 安装器只允许持久写入 `boot` 和 `system`。
-- 禁止写入 GPT、aboot、recovery、cache、userdata、modem、modemst1/2、fsg 或 persist。
+- 安装器只允许持久写入 `boot`、`system` 和 `userdata`。
+- `userdata` 只在用户显式传入 `-ConfirmEraseUserdata` 后擦除并重建为 Debian `/data`。
+- 禁止写入 GPT、aboot、recovery、cache、modem、modemst1/2、fsg 或 persist。
 - 安装前必须备份 boot，并准备设备自己的完整原厂恢复输入。
 - 禁止向公开议题、日志或仓库上传设备全量备份、IMEI/IMSI、SIM 标识、校准数据、校准数据哈希
   或运营商凭据。

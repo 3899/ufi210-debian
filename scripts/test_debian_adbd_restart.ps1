@@ -54,7 +54,9 @@ function Get-UsbFingerprint {
         @($devices | Where-Object { $_.InstanceId -notmatch '&MI_[0-9A-F]{2}\\' }).Count -ne 1) {
         throw "Debian USB 复合设备不完整：期望父设备、RNDIS 和 ACM 各一个，实际为 $($devices.Count) 个"
     }
-    return ($devices.InstanceId -join "`n")
+    [string[]]$instanceIds = @($devices | ForEach-Object { $_.InstanceId })
+    [Array]::Sort($instanceIds, [StringComparer]::OrdinalIgnoreCase)
+    return ($instanceIds -join "`n")
 }
 
 function Get-RndisAdapter {

@@ -119,7 +119,7 @@ Write-Utf8File (Join-Path $OutputDir "windows-wlan-before.txt") ($windowsWlanBef
 $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
 $ready = $false
 do {
-    $probe = Invoke-AdbShell 'systemctl is-active qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register >/dev/null 2>&1 && test -e /dev/wwan0qmi0 && test -e /sys/class/net/wwan0 && mmcli -L | grep -q /Modem/' -AllowFailure
+    $probe = Invoke-AdbShell 'systemctl is-active qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync >/dev/null 2>&1 && test -e /dev/wwan0qmi0 && test -e /sys/class/net/wwan0 && mmcli -L | grep -q /Modem/' -AllowFailure
     $ready = $probe.ExitCode -eq 0
     if (-not $ready) { Start-Sleep -Seconds 2 }
 } while (-not $ready -and (Get-Date) -lt $deadline)
@@ -130,7 +130,7 @@ echo '=== BOOT ==='
 cat /proc/sys/kernel/random/boot_id
 uname -a
 echo '=== SERVICES ==='
-systemctl is-active qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register
+systemctl is-active qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync
 systemctl show rmtfs -p ExecStart --no-pager
 systemctl --failed --no-pager
 echo '=== FIRMWARE MOUNT ==='

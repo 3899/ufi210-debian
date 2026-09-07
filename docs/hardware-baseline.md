@@ -17,8 +17,8 @@
 | eMMC 控制器 | `7824900.sdhci` |
 | USB gadget controller | `msm_hsusb` |
 
-安装脚本检查 Android `ro.product.device=msm8909`、SoC ID、启动完成状态、boot/system 分区尺寸、
-fastboot product 和候选镜像哈希。
+安装脚本检查 Android `ro.product.device=msm8909`、SoC ID、启动完成状态、boot/system/userdata
+分区尺寸、fastboot product 和候选镜像哈希。
 
 ## 分区边界
 
@@ -27,15 +27,16 @@ fastboot product 和候选镜像哈希。
 | boot | 33,554,432 | 写入 Debian boot image |
 | recovery | 33,554,432 | 保持不变 |
 | cache | 268,435,456 | 保持不变 |
-| system | 1,288,491,008 | 写入 Debian rootfs并首次启动扩容 |
-| userdata | 1,928,314,368 | 保持不变 |
+| system | 1,288,491,008 | 写入 Debian rootfs 并首次启动扩容 |
+| userdata | 1,928,314,368 | 擦除原内容，写入 Debian `/data` 并首次启动扩容 |
 | persist | 33,554,432 | 只读挂载，禁止写入 |
 | modemst1 | 1,572,864 | 禁止写入 |
 | modemst2 | 1,572,864 | 禁止写入 |
 | fsg | 1,572,864 | 禁止写入 |
 
-构建 rootfs 镜像为 255 MiB，必须小于 system 分区并保留至少 32 MiB 文件系统空闲空间。首次启动
-后 `x-systemd.growfs` 把 ext4 扩展到完整 system 分区。boot image 必须小于 32 MiB。
+构建 rootfs 镜像为 255 MiB，必须小于 system 分区并保留至少 32 MiB 文件系统空闲空间；data
+初始镜像为 64 MiB。首次启动后 `x-systemd.growfs` 分别把两个 ext4 扩展到完整 system 和
+userdata 分区。两个分区合计约 3.0 GiB，boot image 必须小于 32 MiB。
 
 ## QCDT 与内存
 

@@ -10,16 +10,26 @@ SUITE="${DEBIAN_SUITE:-bookworm}"
 TARGET_PARTITION="${TARGET_PARTITION:-cache}"
 DEBIAN_SNAPSHOT_TIMESTAMP="20260903T000000Z"
 SNAPSHOT_DOWNLOAD_RETRIES=5
-MIRROR="https://snapshot.debian.org/archive/debian/$DEBIAN_SNAPSHOT_TIMESTAMP"
-SECURITY_MIRROR="https://snapshot.debian.org/archive/debian-security/$DEBIAN_SNAPSHOT_TIMESTAMP"
+SNAPSHOT_CANONICAL_ORIGIN="https://snapshot.debian.org"
+SNAPSHOT_TRANSPORT_ORIGIN="${DEBIAN_SNAPSHOT_TRANSPORT_ORIGIN:-$SNAPSHOT_CANONICAL_ORIGIN}"
+MIRROR="$SNAPSHOT_TRANSPORT_ORIGIN/archive/debian/$DEBIAN_SNAPSHOT_TIMESTAMP"
+SECURITY_MIRROR="$SNAPSHOT_TRANSPORT_ORIGIN/archive/debian-security/$DEBIAN_SNAPSHOT_TIMESTAMP"
+MANIFEST_MIRROR="$SNAPSHOT_CANONICAL_ORIGIN/archive/debian/$DEBIAN_SNAPSHOT_TIMESTAMP"
+MANIFEST_SECURITY_MIRROR="$SNAPSHOT_CANONICAL_ORIGIN/archive/debian-security/$DEBIAN_SNAPSHOT_TIMESTAMP"
 RUNTIME_MIRROR="https://deb.debian.org/debian"
 RUNTIME_SECURITY_MIRROR="https://security.debian.org/debian-security"
 DEBIAN_KEYRING="${DEBIAN_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}"
 ROOT_PASSWORD="${ROOT_PASSWORD:-simadmin}"
 IMAGE_SIZE_MB="${IMAGE_SIZE_MB:-255}"
+DATA_IMAGE_SIZE_MB="${DATA_IMAGE_SIZE_MB:-64}"
 FORCE="${FORCE:-0}"
 KERNEL_RELEASE="7.0.0-msm8909"
 MIN_ROOTFS_FREE_BYTES=33554432
+DATA_PARTITION_SIZE=1928314368
+DATA_FILESYSTEM_SIZE=1928310784
+DATA_UUID="89090000-0000-4000-8000-000000000029"
+DATA_HASH_SEED="89090000-0000-4000-8000-000000000030"
+DATA_LABEL="ufi210-data"
 PROJECT_SOURCE_DATE_EPOCH=1781860238
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$PROJECT_SOURCE_DATE_EPOCH}"
 case "$TARGET_PARTITION" in
@@ -56,6 +66,7 @@ WCNSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wcnss-start"
 MPSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-mpss-start"
 MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-prepare"
 MODEM_REGISTER_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-register"
+MODEM_TIME_SYNC_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-time-sync"
 WWAN_IP_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wwan-ip"
 NMTUI_WRAPPER="$PROJECT_ROOT/patches/rootfs/usr/local/bin/nmtui"
 REBOOT_COMPAT_SOURCE="$PROJECT_ROOT/src/reboot-compat.c"
@@ -72,6 +83,7 @@ ROOTFS="$BUILD_DIR/rootfs-armhf"
 REGULATORY_DB="$ROOTFS/usr/lib/firmware/regulatory.db-upstream"
 REGULATORY_DB_SIGNATURE="$ROOTFS/usr/lib/firmware/regulatory.db.p7s-upstream"
 IMAGE="$OUT_DIR/debian-${SUITE}-armhf-${TARGET_PARTITION}.ext4"
+DATA_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-data.ext4"
 BOOT_IMAGE="$OUT_DIR/boot-debian-${TARGET_PARTITION}.img"
 ROOTFS_TARBALL="$OUT_DIR/debian-${SUITE}-armhf-${TARGET_PARTITION}-rootfs.tar.xz"
 PACKAGE_LIST="$OUT_DIR/packages.txt"
@@ -153,6 +165,8 @@ done
 if [[ -n "${DEBIAN_MIRROR+x}" || -n "${DEBIAN_SECURITY_MIRROR+x}" ]]; then
     die "正式构建已固定 Debian Snapshot，不再接受 DEBIAN_MIRROR/DEBIAN_SECURITY_MIRROR 覆盖"
 fi
+[[ "$SNAPSHOT_TRANSPORT_ORIGIN" =~ ^https://snapshot\.debian\.org(:[0-9]{1,5})?$ ]] \
+    || die "DEBIAN_SNAPSHOT_TRANSPORT_ORIGIN 只允许 snapshot.debian.org 的 HTTPS 端口覆盖"
 [[ "$SOURCE_DATE_EPOCH" == "$PROJECT_SOURCE_DATE_EPOCH" ]] \
     || die "正式 rootfs SOURCE_DATE_EPOCH 必须为 $PROJECT_SOURCE_DATE_EPOCH"
 [[ -s "$DEBIAN_KEYRING" ]] \
@@ -160,6 +174,9 @@ fi
 [[ "$IMAGE_SIZE_MB" =~ ^[0-9]+$ ]] || die "IMAGE_SIZE_MB 必须是整数"
 (( IMAGE_SIZE_MB > 0 && IMAGE_SIZE_MB * 1048576 < TARGET_PARTITION_SIZE )) \
     || die "${TARGET_PARTITION} 镜像必须小于目标分区 $TARGET_PARTITION_SIZE 字节"
+[[ "$DATA_IMAGE_SIZE_MB" =~ ^[0-9]+$ ]] || die "DATA_IMAGE_SIZE_MB 必须是整数"
+(( DATA_IMAGE_SIZE_MB > 0 && DATA_IMAGE_SIZE_MB * 1048576 < DATA_PARTITION_SIZE )) \
+    || die "data 镜像必须小于 userdata 分区 $DATA_PARTITION_SIZE 字节"
 
 mkdir -p "$BUILD_DIR" "$OUT_DIR"
 
@@ -177,6 +194,7 @@ wcnss_start_script_sha256="$(sha256sum "$WCNSS_START_SCRIPT" | awk '{print $1}')
 mpss_start_script_sha256="$(sha256sum "$MPSS_START_SCRIPT" | awk '{print $1}')"
 modem_prepare_script_sha256="$(sha256sum "$MODEM_PREPARE_SCRIPT" | awk '{print $1}')"
 modem_register_script_sha256="$(sha256sum "$MODEM_REGISTER_SCRIPT" | awk '{print $1}')"
+modem_time_sync_script_sha256="$(sha256sum "$MODEM_TIME_SYNC_SCRIPT" | awk '{print $1}')"
 wwan_ip_script_sha256="$(sha256sum "$WWAN_IP_SCRIPT" | awk '{print $1}')"
 nmtui_wrapper_sha256="$(sha256sum "$NMTUI_WRAPPER" | awk '{print $1}')"
 reboot_compat_source_sha256="$(sha256sum "$REBOOT_COMPAT_SOURCE" | awk '{print $1}')"
@@ -217,6 +235,7 @@ if [[ "$FORCE" != "1" && -s "$IMAGE" && -s "$BOOT_IMAGE" && -s "$INITRAMFS" && -
     && grep -qx "mpss_start_script_sha256=$mpss_start_script_sha256" "$MANIFEST" \
     && grep -qx "modem_prepare_script_sha256=$modem_prepare_script_sha256" "$MANIFEST" \
     && grep -qx "modem_register_script_sha256=$modem_register_script_sha256" "$MANIFEST" \
+    && grep -qx "modem_time_sync_script_sha256=$modem_time_sync_script_sha256" "$MANIFEST" \
     && grep -qx "wwan_ip_script_sha256=$wwan_ip_script_sha256" "$MANIFEST" \
     && grep -qx "nmtui_wrapper_sha256=$nmtui_wrapper_sha256" "$MANIFEST" \
     && grep -qx "reboot_compat_source_sha256=$reboot_compat_source_sha256" "$MANIFEST" \
@@ -228,8 +247,8 @@ if [[ "$FORCE" != "1" && -s "$IMAGE" && -s "$BOOT_IMAGE" && -s "$INITRAMFS" && -
     && grep -qx "wcnss_nv_sha256=$wcnss_nv_sha256" "$MANIFEST" \
     && grep -qx "debian_keyring_sha256=$keyring_sha256" "$MANIFEST" \
     && grep -qx "debian_snapshot_timestamp=$DEBIAN_SNAPSHOT_TIMESTAMP" "$MANIFEST" \
-    && grep -qx "debian_snapshot_mirror=$MIRROR" "$MANIFEST" \
-    && grep -qx "debian_security_snapshot_mirror=$SECURITY_MIRROR" "$MANIFEST" \
+    && grep -qx "debian_snapshot_mirror=$MANIFEST_MIRROR" "$MANIFEST" \
+    && grep -qx "debian_security_snapshot_mirror=$MANIFEST_SECURITY_MIRROR" "$MANIFEST" \
     && grep -qx "debian_runtime_mirror=$RUNTIME_MIRROR" "$MANIFEST" \
     && grep -qx "debian_runtime_security_mirror=$RUNTIME_SECURITY_MIRROR" "$MANIFEST" \
     && grep -qx "snapshot_download_retries=$SNAPSHOT_DOWNLOAD_RETRIES" "$MANIFEST" \
@@ -240,13 +259,30 @@ if [[ "$FORCE" != "1" && -s "$IMAGE" && -s "$BOOT_IMAGE" && -s "$INITRAMFS" && -
     && grep -qx "root_password=$ROOT_PASSWORD" "$MANIFEST" \
     && grep -qx "rootfs_image_bytes=$((IMAGE_SIZE_MB * 1048576))" "$MANIFEST" \
     && grep -qx "rootfs_uuid=$ROOTFS_UUID" "$MANIFEST" \
-    && grep -qx "rootfs_hash_seed=$ROOTFS_HASH_SEED" "$MANIFEST"; then
+    && grep -qx "rootfs_hash_seed=$ROOTFS_HASH_SEED" "$MANIFEST" \
+    && { [[ "$TARGET_PARTITION" != system ]] \
+        || { [[ -s "$DATA_IMAGE" ]] \
+            && grep -qx "data_partition=userdata" "$MANIFEST" \
+            && grep -qx "data_partition_bytes=$DATA_PARTITION_SIZE" "$MANIFEST" \
+            && grep -qx "data_image_bytes=$((DATA_IMAGE_SIZE_MB * 1048576))" "$MANIFEST" \
+            && grep -qx "data_uuid=$DATA_UUID" "$MANIFEST" \
+            && grep -qx "data_hash_seed=$DATA_HASH_SEED" "$MANIFEST" \
+            && grep -qx "data_label=$DATA_LABEL" "$MANIFEST" \
+            && grep -qx "data_mount=/data" "$MANIFEST" \
+            && grep -qx "data_auto_grow=enabled" "$MANIFEST"; }; }; then
     image_recorded="$(sed -n 's/^rootfs_image_sha256=//p' "$MANIFEST")"
     boot_recorded="$(sed -n 's/^boot_image_sha256=//p' "$MANIFEST")"
     initramfs_recorded="$(sed -n 's/^initramfs_sha256=//p' "$MANIFEST")"
+    data_matches=1
+    if [[ "$TARGET_PARTITION" == system ]]; then
+        data_recorded="$(sed -n 's/^data_image_sha256=//p' "$MANIFEST")"
+        [[ "$data_recorded" == "$(sha256sum "$DATA_IMAGE" | awk '{print $1}')" ]] \
+            || data_matches=0
+    fi
     if [[ "$image_recorded" == "$(sha256sum "$IMAGE" | awk '{print $1}')" \
         && "$boot_recorded" == "$(sha256sum "$BOOT_IMAGE" | awk '{print $1}')" \
-        && "$initramfs_recorded" == "$(sha256sum "$INITRAMFS" | awk '{print $1}')" ]]; then
+        && "$initramfs_recorded" == "$(sha256sum "$INITRAMFS" | awk '{print $1}')" \
+        && "$data_matches" == 1 ]]; then
         log "输入与 Debian ${TARGET_PARTITION} 产物未变化，跳过重复构建"
         exit 0
     fi
@@ -297,6 +333,8 @@ PATH="$retry_bin:$PATH" debootstrap \
     "$SUITE" "$ROOTFS" "$MIRROR"
 
 install -m 0755 "$(command -v qemu-arm-static)" "$ROOTFS/usr/bin/qemu-arm-static"
+# 构建宿主可用 hosts 把固定 Snapshot 透明转发到受控隧道；最终镜像会重建此文件。
+install -m 0644 /etc/hosts "$ROOTFS/etc/hosts"
 log "验证 qemu-arm binfmt_misc 能执行 ARM 子进程"
 if ! chroot "$ROOTFS" /usr/bin/qemu-arm-static /bin/bash -lc \
     '/bin/true && /usr/bin/grep --version >/dev/null'; then
@@ -368,6 +406,13 @@ if [[ "$ROOTFS_AUTO_GROW" == enabled ]]; then
 fi
 cat > "$ROOTFS/etc/fstab" <<EOF
 PARTLABEL=$TARGET_PARTITION / ext4 $root_mount_options 0 1
+EOF
+if [[ "$TARGET_PARTITION" == system ]]; then
+    cat >> "$ROOTFS/etc/fstab" <<'EOF'
+PARTLABEL=userdata /data ext4 defaults,noatime,nosuid,nodev,nofail,x-systemd.growfs,x-systemd.device-timeout=30s 0 2
+EOF
+fi
+cat >> "$ROOTFS/etc/fstab" <<EOF
 PARTLABEL=modem /firmware vfat ro,nosuid,nodev,noexec,fmask=0133,dmask=0022,nofail,x-systemd.device-timeout=30s 0 0
 PARTLABEL=persist /persist ext4 ro,noload,nosuid,nodev,noexec,nofail,x-systemd.device-timeout=30s 0 0
 proc /proc proc defaults 0 0
@@ -408,6 +453,7 @@ mkdir -p \
     "$ROOTFS/etc/NetworkManager/dispatcher.d" \
     "$ROOTFS/etc/NetworkManager/conf.d" \
     "$ROOTFS/etc/NetworkManager/system-connections" \
+    "$ROOTFS/data" \
     "$ROOTFS/firmware" \
     "$ROOTFS/persist"
 install -m 0755 "$USB_GADGET_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-gadget"
@@ -416,14 +462,15 @@ install -m 0755 "$WCNSS_START_SCRIPT" "$ROOTFS/usr/sbin/zu02-wcnss-start"
 install -m 0755 "$MPSS_START_SCRIPT" "$ROOTFS/usr/sbin/zu02-mpss-start"
 install -m 0755 "$MODEM_PREPARE_SCRIPT" "$ROOTFS/usr/sbin/zu02-modem-prepare"
 install -m 0755 "$MODEM_REGISTER_SCRIPT" "$ROOTFS/usr/sbin/zu02-modem-register"
+install -m 0755 "$MODEM_TIME_SYNC_SCRIPT" "$ROOTFS/usr/sbin/ufi210-modem-time-sync"
 install -m 0755 "$WWAN_IP_SCRIPT" "$ROOTFS/etc/NetworkManager/dispatcher.d/90-zu02-wwan-ip"
 install -m 0755 "$NMTUI_WRAPPER" "$ROOTFS/usr/local/bin/nmtui"
 arm-linux-gnueabihf-gcc \
-    -Os -fno-ident -fno-asynchronous-unwind-tables \
+    -Os -static -fno-ident -fno-asynchronous-unwind-tables \
     -Wl,--build-id=none -Wl,-z,relro,-z,now,-z,noexecstack -s \
     -o "$ROOTFS/system/bin/reboot" "$REBOOT_COMPAT_SOURCE"
-file "$ROOTFS/system/bin/reboot" | grep -q 'ELF 32-bit.*ARM' \
-    || die "ADB reboot 兼容程序不是 32 位 ARM ELF"
+file "$ROOTFS/system/bin/reboot" | grep -q 'ELF 32-bit.*ARM.*statically linked' \
+    || die "ADB reboot 兼容程序不是 32 位 ARM 静态 ELF"
 reboot_test_rc=0
 chroot "$ROOTFS" /usr/bin/qemu-arm-static /system/bin/reboot unsupported \
     >/dev/null 2>&1 || reboot_test_rc=$?
@@ -621,6 +668,21 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
+cat > "$ROOTFS/etc/systemd/system/ufi210-modem-time-sync.service" <<'EOF'
+[Unit]
+Description=Seed the UFI210 system clock from validated modem time
+Requires=zu02-modem-register.service
+After=zu02-modem-register.service systemd-timesyncd.service
+
+[Service]
+Type=oneshot
+RuntimeDirectory=ufi210
+ExecStart=/usr/sbin/ufi210-modem-time-sync
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 cat > "$ROOTFS/etc/dnsmasq.d/zu02-usb.conf" <<'EOF'
 port=0
@@ -777,7 +839,7 @@ python3 "$QCDT_BUILD_SCRIPT" \
 qcdt_sha256="$(sha256sum "$QCDT" | awk '{print $1}')"
 
 chroot "$ROOTFS" /usr/bin/qemu-arm-static /bin/bash -lc \
-    'systemctl enable zu02-firewall zu02-usb-gadget zu02-usb-watchdog.timer zu02-wcnss adbd zu02-usb-network ssh dnsmasq NetworkManager qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register systemd-timesyncd serial-getty@ttyGS0.service >/dev/null'
+    'systemctl enable zu02-firewall zu02-usb-gadget zu02-usb-watchdog.timer zu02-wcnss adbd zu02-usb-network ssh dnsmasq NetworkManager qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync systemd-timesyncd fstrim.timer serial-getty@ttyGS0.service >/dev/null'
 
 log "清理 Debian ${TARGET_PARTITION} rootfs"
 chroot "$ROOTFS" /usr/bin/qemu-arm-static /bin/bash -lc 'apt-get clean'
@@ -861,6 +923,38 @@ image_bytes="$(stat -c %s "$IMAGE")"
 (( image_bytes < TARGET_PARTITION_SIZE )) \
     || die "rootfs 镜像不小于目标 ${TARGET_PARTITION} 分区"
 
+data_image_bytes=0
+data_image_sha256=""
+if [[ "$TARGET_PARTITION" == system ]]; then
+    data_root="$BUILD_DIR/data-root"
+    case "$(realpath -m "$data_root")" in
+        "$(realpath -m "$BUILD_DIR")"/*) ;;
+        *) die "拒绝清理 BUILD_DIR 之外的 data root：$data_root" ;;
+    esac
+    rm -rf -- "$data_root"
+    install -d -m 0755 \
+        "$data_root/apps" \
+        "$data_root/backups" \
+        "$data_root/srv"
+    find "$data_root" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
+
+    log "生成 ${DATA_IMAGE_SIZE_MB} MiB userdata ext4 镜像"
+    rm -f "$DATA_IMAGE"
+    truncate -s "${DATA_IMAGE_SIZE_MB}M" "$DATA_IMAGE"
+    mkfs.ext4 -q -F -b 4096 -m 0 -L "$DATA_LABEL" \
+        -U "$DATA_UUID" \
+        -E "lazy_itable_init=0,lazy_journal_init=0,hash_seed=$DATA_HASH_SEED" \
+        -d "$data_root" "$DATA_IMAGE"
+    python3 "$INODE_TIME_TOOL" normalize "$DATA_IMAGE" "$SOURCE_DATE_EPOCH"
+    data_fsck_rc=0
+    e2fsck -fn "$DATA_IMAGE" >/dev/null || data_fsck_rc=$?
+    (( data_fsck_rc <= 1 )) || die "e2fsck 校验 userdata 镜像失败，退出码 $data_fsck_rc"
+    data_image_bytes="$(stat -c %s "$DATA_IMAGE")"
+    (( data_image_bytes < DATA_PARTITION_SIZE )) \
+        || die "data 镜像不小于 userdata 分区"
+    data_image_sha256="$(sha256sum "$DATA_IMAGE" | awk '{print $1}')"
+fi
+
 log "打包 rootfs tarball"
 find "$ROOTFS" -exec touch -h -d "@$SOURCE_DATE_EPOCH" {} +
 tar --sort=name --format=posix \
@@ -889,8 +983,8 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
 {
     printf 'debian_suite=%s\n' "$SUITE"
     printf 'debian_snapshot_timestamp=%s\n' "$DEBIAN_SNAPSHOT_TIMESTAMP"
-    printf 'debian_snapshot_mirror=%s\n' "$MIRROR"
-    printf 'debian_security_snapshot_mirror=%s\n' "$SECURITY_MIRROR"
+    printf 'debian_snapshot_mirror=%s\n' "$MANIFEST_MIRROR"
+    printf 'debian_security_snapshot_mirror=%s\n' "$MANIFEST_SECURITY_MIRROR"
     printf 'debian_runtime_mirror=%s\n' "$RUNTIME_MIRROR"
     printf 'debian_runtime_security_mirror=%s\n' "$RUNTIME_SECURITY_MIRROR"
     printf 'snapshot_valid_until_override=build-only-removed\n'
@@ -925,6 +1019,7 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'mpss_start_script_sha256=%s\n' "$mpss_start_script_sha256"
     printf 'modem_prepare_script_sha256=%s\n' "$modem_prepare_script_sha256"
     printf 'modem_register_script_sha256=%s\n' "$modem_register_script_sha256"
+    printf 'modem_time_sync_script_sha256=%s\n' "$modem_time_sync_script_sha256"
     printf 'wwan_ip_script_sha256=%s\n' "$wwan_ip_script_sha256"
     printf 'nmtui_wrapper_sha256=%s\n' "$nmtui_wrapper_sha256"
     printf 'reboot_compat_source_sha256=%s\n' "$reboot_compat_source_sha256"
@@ -948,6 +1043,22 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'target_partition=%s\n' "$TARGET_PARTITION"
     printf 'target_partition_bytes=%s\n' "$TARGET_PARTITION_SIZE"
     printf 'rootfs_auto_grow=%s\n' "$ROOTFS_AUTO_GROW"
+    if [[ "$TARGET_PARTITION" == system ]]; then
+        printf 'data_partition=userdata\n'
+        printf 'data_partition_bytes=%s\n' "$DATA_PARTITION_SIZE"
+        printf 'data_filesystem_bytes=%s\n' "$DATA_FILESYSTEM_SIZE"
+        printf 'data_image_bytes=%s\n' "$data_image_bytes"
+        printf 'data_image_sha256=%s\n' "$data_image_sha256"
+        printf 'data_uuid=%s\n' "$DATA_UUID"
+        printf 'data_hash_seed=%s\n' "$DATA_HASH_SEED"
+        printf 'data_label=%s\n' "$DATA_LABEL"
+        printf 'data_mount=/data\n'
+        printf 'data_mount_options=defaults,noatime,nosuid,nodev,nofail,x-systemd.growfs,x-systemd.device-timeout=30s\n'
+        printf 'data_auto_grow=enabled\n'
+        printf 'data_initial_directories=apps,backups,srv\n'
+        printf 'userdata_previous_contents=erased-by-installer\n'
+    fi
+    printf 'fstrim=weekly-systemd-timer\n'
     printf 'reboot_mode=warm\n'
     printf 'device_ip=192.168.68.1\n'
     printf 'root_password=%s\n' "$ROOT_PASSWORD"
@@ -972,7 +1083,7 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'modem_default_modes=3g-4g-preferred-4g\n'
     printf 'wwan_ipv4=networkmanager-dispatcher-bearer-values\n'
     printf 'resolv_conf=NetworkManager-runtime\n'
-    printf 'time_sync=systemd-timesyncd\n'
+    printf 'time_sync=qmi-dms-forward-only+systemd-timesyncd\n'
     printf 'system_locale=C.UTF-8\n'
     printf 'nmtui_locale=zh_CN.UTF-8\n'
     printf 'wifi_ap_profile=preinstalled-disabled\n'
@@ -990,6 +1101,10 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
 } > "$MANIFEST"
 
 log "完成：$IMAGE"
+if [[ "$TARGET_PARTITION" == system ]]; then
+    log "完成：$DATA_IMAGE"
+    log "data SHA256：$data_image_sha256"
+fi
 log "完成：$BOOT_IMAGE"
 log "rootfs SHA256：$rootfs_sha256"
 log "boot SHA256：$boot_sha256"

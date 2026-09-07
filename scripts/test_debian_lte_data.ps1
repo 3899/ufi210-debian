@@ -13,6 +13,7 @@ param(
     [string]$ProbeAddress = "1.1.1.1",
     [ValidateRange(1, 65535)]
     [int]$ProbePort = 53,
+    [switch]$AllowCellularDataUsage,
     [string]$OutputRoot = ""
 )
 
@@ -23,6 +24,10 @@ $ProjectRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot ".."))
 $Adb = Join-Path $ProjectRoot "adb.exe"
 $ConnectionName = "zu02-lte-test"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
+
+if (-not $AllowCellularDataUsage) {
+    throw "此脚本会建立蜂窝数据连接并产生流量；确认资费后显式传入 -AllowCellularDataUsage"
+}
 
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
     $adbCommand = Get-Command adb.exe -ErrorAction SilentlyContinue
@@ -291,13 +296,16 @@ ip -4 route show dev wwan0
     $parsedDns = $null
     if ([Net.IPAddress]::TryParse($wwanDns, [ref]$parsedDns) -and
         $parsedDns.AddressFamily -eq [Net.Sockets.AddressFamily]::InterNetwork) {
-        $dns = Invoke-AdbShell "busybox nslookup debian.org '$wwanDns'" -AllowFailure
+        $dns = Invoke-AdbShell "busybox nslookup ipv4only.arpa '$wwanDns'" -AllowFailure
         Write-Utf8File (Join-Path $OutputDir "dns-probe.txt") ($dns.Text + "`r`n")
-        $dnsSucceeded = $dns.ExitCode -eq 0 -and $dns.Text -match '(?m)^Address:\s+[0-9]+(?:\.[0-9]+){3}\s*$'
+        $dnsSucceeded = $dns.ExitCode -eq 0 -and
+            $dns.Text -match '(?im)^Name:\s+ipv4only\.arpa\.?\s*$' -and
+            $dns.Text -match '(?m)^Address:\s+[0-9]+(?:\.[0-9]+){3}\s*$'
     }
     $linkStats = Invoke-AdbShell 'ip -s link show wwan0; cat /sys/class/net/wwan0/statistics/tx_packets /sys/class/net/wwan0/statistics/tx_bytes /sys/class/net/wwan0/statistics/rx_packets /sys/class/net/wwan0/statistics/rx_bytes'
     Write-Utf8File (Join-Path $OutputDir "wwan-stats-after-probes.txt") ($linkStats.Text + "`r`n")
-    if (-not $pingSucceeded -and -not $tcpSucceeded -and -not $dnsSucceeded) { throw "wwan0 无法通过运营商 DNS 或公网探针" }
+    if (-not $pingSucceeded -and -not $tcpSucceeded) { throw "wwan0 公网 IP 探针未通过" }
+    if (-not $dnsSucceeded) { throw "运营商 DNS 无法解析 IPv4 专用测试域名" }
 } catch {
     $testFailure = "阶段 $currentStep 失败：$($_.Exception.Message)"
     $diagnostic = Invoke-AdbShell 'nmcli device; mmcli -m any --output-keyvalue; journalctl -b -u NetworkManager -u ModemManager --no-pager | tail -n 300' -AllowFailure
@@ -342,7 +350,8 @@ ip -4 route show dev wwan0
 if ($null -ne $testFailure) {
     throw "$testFailure；临时连接已清理且敏感分区哈希保持不变；查看 $OutputDir"
 }
-if (-not $pingSucceeded -and -not $tcpSucceeded -and -not $dnsSucceeded) { throw "蜂窝公网探针未通过" }
+if (-not $pingSucceeded -and -not $tcpSucceeded) { throw "蜂窝公网 IP 探针未通过" }
+if (-not $dnsSucceeded) { throw "运营商 DNS IPv4 解析未通过" }
 
 $summary = @(
     "Debian LTE 数据链路验收通过"

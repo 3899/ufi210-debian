@@ -109,4 +109,5 @@ fi
 
 log "纯 Debian 固件构建完成"
 printf 'rootfs=%s\n' "$PROJECT_ROOT/out/mainline/debian-system/debian-bookworm-armhf-system.ext4"
+printf 'data=%s\n' "$PROJECT_ROOT/out/mainline/debian-system/debian-bookworm-armhf-data.ext4"
 printf 'boot=%s\n' "$PROJECT_ROOT/out/mainline/debian-system/boot-debian-system.img"

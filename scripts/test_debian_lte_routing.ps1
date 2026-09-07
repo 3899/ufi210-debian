@@ -10,6 +10,7 @@ param(
     [string]$AdbSerial = "192.168.68.1:5555",
     [ValidateRange(30, 300)]
     [int]$ConnectTimeoutSeconds = 120,
+    [switch]$AllowCellularDataUsage,
     [string]$OutputRoot = ""
 )
 
@@ -24,6 +25,10 @@ $Namespace = "zu02-nat-client"
 $HostInterface = "zu02-nat-host"
 $PeerInterface = "zu02-nat-peer"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
+
+if (-not $AllowCellularDataUsage) {
+    throw "此脚本会建立蜂窝数据连接并产生流量；确认资费后显式传入 -AllowCellularDataUsage"
+}
 
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
     $adbCommand = Get-Command adb.exe -ErrorAction SilentlyContinue
@@ -215,10 +220,42 @@ if ip netns exec "`$ns" busybox nc -w 2 192.168.77.1 5555 </dev/null; then
     echo 'TCP ADB was reachable from a non-USB downstream interface' >&2
     exit 1
 fi
+stage=downstream-public
+ping_rc=1
+tcp_rc=1
+ip netns exec "`$ns" ping -c 3 -W 3 1.1.1.1 >/dev/null && ping_rc=0 || true
+ip netns exec "`$ns" busybox nc -w 8 1.1.1.1 53 </dev/null && tcp_rc=0 || true
+[ "`$ping_rc" -eq 0 ] || [ "`$tcp_rc" -eq 0 ]
+
 stage=carrier-dns
-result=`$(ip netns exec "`$ns" busybox nslookup debian.org "`$dns")
-printf '%s\n' "`$result" | grep -q 'debian.org'
-printf '%s\n' "`$result" | grep -Eq '^[0-9]+(\.[0-9]+){3}`$'
+carrier_dns_ok=0
+attempt=1
+while [ "`$attempt" -le 3 ]; do
+    result=`$(ip netns exec "`$ns" busybox nslookup ipv4only.arpa "`$dns" 2>&1) || true
+    if printf '%s\n' "`$result" | grep -q 'ipv4only.arpa' &&
+       printf '%s\n' "`$result" | grep -Eq '^Address([[:space:]][0-9]+)?:[[:space:]]+192\.0\.0\.(170|171)`$'; then
+        carrier_dns_ok=1
+        break
+    fi
+    sleep 2
+    attempt=`$((attempt + 1))
+done
+[ "`$carrier_dns_ok" -eq 1 ] || { printf '%s\n' "`$result" >&2; exit 1; }
+
+stage=shared-dns
+shared_dns_ok=0
+attempt=1
+while [ "`$attempt" -le 3 ]; do
+    result=`$(ip netns exec "`$ns" busybox nslookup ipv4only.arpa 192.168.77.1 2>&1) || true
+    if printf '%s\n' "`$result" | grep -q 'ipv4only.arpa' &&
+       printf '%s\n' "`$result" | grep -Eq '^Address([[:space:]][0-9]+)?:[[:space:]]+192\.0\.0\.(170|171)`$'; then
+        shared_dns_ok=1
+        break
+    fi
+    sleep 2
+    attempt=`$((attempt + 1))
+done
+[ "`$shared_dns_ok" -eq 1 ] || { printf '%s\n' "`$result" >&2; exit 1; }
 
 printf 'LTE_ROUTING_NAMESPACE_OK\n'
 printf 'routing_firewall=NetworkManager-nftables\n'
@@ -226,7 +263,11 @@ printf 'nft_masquerade=present\n'
 printf 'management_ingress=usb-only-rndis-ssh-tcp-adb-acm\n'
 printf 'non_usb_management=blocked\n'
 printf 'wwan_ingress=drop-new-and-untracked\n'
-printf 'carrier_dns_resolution=passed\n'
+printf 'downstream_public_connectivity=passed\n'
+printf 'downstream_public_icmp=%s\n' "`$([ "`$ping_rc" -eq 0 ] && printf passed || printf blocked-or-failed)"
+printf 'downstream_public_tcp=%s\n' "`$([ "`$tcp_rc" -eq 0 ] && printf passed || printf blocked-or-failed)"
+printf 'carrier_dns_direct=passed\n'
+printf 'shared_dns_proxy=passed\n'
 printf 'windows_wifi=not-modified\n'
 ip netns exec "`$ns" ip -s link show "`$peer"
 "@
@@ -241,7 +282,9 @@ try {
         $routing.Text -notmatch '(?m)^management_ingress=usb-only-rndis-ssh-tcp-adb-acm\r?$' -or
         $routing.Text -notmatch '(?m)^non_usb_management=blocked\r?$' -or
         $routing.Text -notmatch '(?m)^wwan_ingress=drop-new-and-untracked\r?$' -or
-        $routing.Text -notmatch '(?m)^carrier_dns_resolution=passed\r?$') {
+        $routing.Text -notmatch '(?m)^downstream_public_connectivity=passed\r?$' -or
+        $routing.Text -notmatch '(?m)^carrier_dns_direct=passed\r?$' -or
+        $routing.Text -notmatch '(?m)^shared_dns_proxy=passed\r?$') {
         throw "LTE namespace 路由结果缺少成功标记"
     }
 } catch {
@@ -288,7 +331,9 @@ $summary = @(
     "management_ingress=usb-only-rndis-ssh-tcp-adb-acm"
     "non_usb_management_ports=blocked"
     "wwan_ingress=drop-new-and-untracked"
-    "carrier_dns_resolution=passed-from-downstream"
+    "downstream_public_connectivity=passed"
+    "carrier_dns_resolution=passed-direct-from-downstream"
+    "shared_dns_proxy=passed-from-downstream"
     "temporary_connections=deleted"
     "temporary_namespace=deleted"
     "windows_wifi=not-modified"

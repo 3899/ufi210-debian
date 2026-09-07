@@ -5,15 +5,16 @@ Debian 12 Bookworm `armhf` 无头基础环境，不包含桌面、触摸栈或 W
 
 ## 安装结果
 
-安装器只改写两个分区：
+安装器只改写三个分区：
 
 | 分区 | 内容 | 持久性 |
 | --- | --- | --- |
 | `boot` | Linux kernel、initramfs、QCDT v3 与 DW01 DTB | 断电保留 |
 | `system` | Debian rootfs | 断电保留，首次启动扩容至完整分区 |
+| `userdata` | Debian `/data` | 原内容永久擦除，首次启动扩容至完整分区 |
 
-原 Android system 会被覆盖。GPT、aboot、recovery、modem、modemst1/2、fsg、persist、cache 和
-userdata 不会被安装器改写。普通重启和断电上电应直接进入 Debian，不会返回 Android。
+原 Android system 和 userdata 会被覆盖。GPT、aboot、recovery、modem、modemst1/2、fsg、
+persist 和 cache 不会被安装器改写。普通重启和断电上电应直接进入 Debian，不会返回 Android。
 
 ## 安装前准备
 
@@ -39,7 +40,7 @@ install.bat
 或在 PowerShell 执行：
 
 ```powershell
-.\scripts\install_debian_system.ps1 -ConfirmPersistentInstall
+.\scripts\install_debian_system.ps1 -ConfirmPersistentInstall -ConfirmEraseUserdata
 ```
 
 脚本按以下顺序自动完成：
@@ -47,10 +48,11 @@ install.bat
 1. 核对镜像 manifest 与 SHA256。
 2. 从当前系统只读备份完整 32 MiB boot 分区。
 3. 核对 Android 或 Debian 身份、SoC ID 245 和分区尺寸。
-4. 进入原厂 fastboot，核对 product 和 system 分区边界。
-5. 在同一次 fastboot 会话中依次执行 `flash system` 和 `flash boot`。
-6. 通过 `fastboot boot` RAM 启动同一个 boot 镜像，验证已写入的 system rootfs。
-7. 核对 rootfs UUID、自动扩容、boot 分区回读哈希、服务、remoteproc 和 warm reboot 模式。
+4. 进入原厂 fastboot，核对 product 和 boot/system/userdata 分区边界。
+5. 在同一次 fastboot 会话中写 system、擦除并写 userdata，最后执行 `flash boot`。
+6. 通过 `fastboot boot` RAM 启动同一个 boot 镜像，验证已写入的 system rootfs 和 `/data`。
+7. 核对两个 ext4 的 UUID、自动扩容、`/data` 可写性、boot 分区回读哈希、服务、remoteproc
+   和 warm reboot 模式。
 8. 执行普通 reboot，以前后不同的 `boot_id` 验证持久 boot 自动返回 Debian。
 
 脚本不会在只刷完一个分区时重启。若预检失败，脚本会在刷写前停止。
@@ -62,11 +64,13 @@ install.bat
 ```powershell
 .\scripts\install_debian_system.ps1 \
   -ConfirmPersistentInstall \
+  -ConfirmEraseUserdata \
   -ConfirmFastbootTarget \
   -BootBackupPath '<绝对路径>\boot-before-install.img'
 ```
 
-只有该备份恰为 32 MiB 且属于当前设备时才能继续。
+只有该备份恰为 32 MiB 且属于当前设备时才能继续。`-ConfirmEraseUserdata` 表示确认永久删除
+userdata 内的 Android 数据，缺少该参数时安装器会在刷写前停止。
 
 ## 首次连接
 
@@ -110,6 +114,15 @@ sync
 reboot
 ```
 
+## 存储布局
+
+`/` 位于 system，完整容量约 1.20 GiB；`/data` 位于 userdata，完整容量约 1.80 GiB。建议把
+额外应用、服务数据和备份分别放在 `/data/apps`、`/data/srv` 和 `/data/backups`。系统不会把
+`/var/lib` 等启动关键目录自动迁移到 `/data`，避免数据盘故障阻断 USB/SSH 救援。
+
+两个 ext4 均使用 `noatime`，系统启用每周 `fstrim.timer`。默认不建立 eMMC swap，以减少写放大；
+512 MiB 内存不足的工作负载应先限制服务内存，而不是依赖持续换页。
+
 ## 从 Debian 进入 fastboot
 
 标准 Debian `adbd` 不实现主机侧 `adb reboot` 服务。本固件提供专用 ARM 兼容程序，由 ADB
@@ -133,9 +146,13 @@ adb -s 192.168.68.1:5555 shell /system/bin/reboot bootloader
 蜂窝测试必须使用实际运营商提供的 APN，不能猜测。没有有效 SIM 时只能验收 MPSS、QRTR、
 ModemManager 和 SIM 枚举，不能据此宣称 LTE 数据可用。
 
+项目中的蜂窝数据、路由和持续联网测试会产生运营商流量，默认拒绝执行。仅在确认 SIM 资费后，
+才可显式传入 `-AllowCellularDataUsage` 启动这些测试。
+
 ## 恢复 Android
 
-本安装会覆盖 boot 和 system，不能通过普通重启回到 Android。恢复时至少刷回同一台设备自己的：
+本安装会覆盖 boot、system 和 userdata，不能通过普通重启回到 Android。恢复时至少刷回同一台
+设备自己的：
 
 ```text
 boot
@@ -144,3 +161,6 @@ system
 
 如果设备只能进入 Qualcomm 9008，使用本机完整原厂备份和已验证的 programmer 恢复。不要刷入
 其他设备的 GPT、aboot、modemst1/2、fsg、persist、EFS 或身份数据。
+
+仅恢复 boot 和 system 不会还原已擦除的 Android userdata；返回 Android 时还必须按该 Android
+固件的恢复流程重新格式化或恢复 userdata。

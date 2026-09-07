@@ -20,7 +20,8 @@ $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 $Services = @(
     "zu02-firewall", "zu02-usb-gadget", "adbd", "zu02-usb-network", "ssh", "dnsmasq",
     "NetworkManager", "serial-getty@ttyGS0.service", "zu02-wcnss", "qrtr-ns", "rmtfs",
-    "zu02-mpss", "zu02-modem-prepare", "ModemManager", "zu02-modem-register"
+    "zu02-mpss", "zu02-modem-prepare", "ModemManager", "zu02-modem-register",
+    "ufi210-modem-time-sync"
 )
 
 function Write-Utf8File {

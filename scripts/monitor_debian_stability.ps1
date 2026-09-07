@@ -22,12 +22,14 @@ if (-not $ProjectRoot) {
 $ProjectRoot = [IO.Path]::GetFullPath($ProjectRoot)
 $Adb = Join-Path $ProjectRoot "adb.exe"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
-$ActiveServices = "zu02-firewall zu02-usb-gadget adbd zu02-usb-watchdog.timer zu02-usb-network ssh dnsmasq NetworkManager serial-getty@ttyGS0.service zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register"
-$RestartTrackedServices = "zu02-firewall zu02-usb-gadget adbd zu02-usb-watchdog.service zu02-usb-network ssh dnsmasq NetworkManager serial-getty@ttyGS0.service zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register"
+$ActiveServices = "zu02-firewall zu02-usb-gadget adbd zu02-usb-watchdog.timer zu02-usb-network ssh dnsmasq NetworkManager serial-getty@ttyGS0.service zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync fstrim.timer"
+$RestartTrackedServices = "zu02-firewall zu02-usb-gadget adbd zu02-usb-watchdog.service zu02-usb-network ssh dnsmasq NetworkManager serial-getty@ttyGS0.service zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync"
 $ExpectedActiveServices = @($ActiveServices -split ' ').Count
 $ExpectedRestartTrackedServices = @($RestartTrackedServices -split ' ').Count
 $RequiredRootfsAvailableBytes = 32MB
+$RequiredDataAvailableBytes = 32MB
 $AllowedJournalBytes = 20MB
+$ManifestPath = Join-Path $ProjectRoot "out\mainline\debian-system\BUILD-MANIFEST.txt"
 
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
     $adbCommand = Get-Command adb.exe -ErrorAction SilentlyContinue
@@ -77,7 +79,9 @@ function Get-DebianUsbFingerprint {
         @($devices | Where-Object { $_.InstanceId -notmatch '&MI_[0-9A-F]{2}\\' }).Count -ne 1) {
         throw "Debian USB 复合设备不完整"
     }
-    return ($devices.InstanceId -join "`n")
+    [string[]]$instanceIds = @($devices | ForEach-Object { $_.InstanceId })
+    [Array]::Sort($instanceIds, [StringComparer]::OrdinalIgnoreCase)
+    return ($instanceIds -join "`n")
 }
 
 function Get-RndisAdapter {
@@ -118,6 +122,22 @@ function Receive-PingSamples {
 }
 
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) { throw "缺少工具：$Adb" }
+if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { throw "缺少构建 manifest：$ManifestPath" }
+$Manifest = @{}
+foreach ($line in Get-Content -LiteralPath $ManifestPath -Encoding UTF8) {
+    if ($line -match '^([^=]+)=(.*)$') { $Manifest[$Matches[1]] = $Matches[2] }
+}
+$ExpectedRootfsBytes = $Manifest['target_partition_bytes']
+$ExpectedDataFilesystemBytes = $Manifest['data_filesystem_bytes']
+$ExpectedDataUuid = $Manifest['data_uuid']
+if ($ExpectedRootfsBytes -ne '1288491008' -or
+    $Manifest['data_partition_bytes'] -ne '1928314368' -or
+    $ExpectedDataFilesystemBytes -ne '1928310784' -or
+    $ExpectedDataUuid -ne '89090000-0000-4000-8000-000000000029' -or
+    $Manifest['data_auto_grow'] -ne 'enabled' -or
+    $Manifest['fstrim'] -ne 'weekly-systemd-timer') {
+    throw "构建 manifest 的持久存储布局不匹配"
+}
 if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\debian-system-device-test" }
 $testName = if ($AllowUnregisteredModem) { "stability-no-cellular" } else { "stability" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) ($testName + "-" + (Get-Date -Format "yyyyMMdd-HHmmss"))
@@ -156,6 +176,7 @@ $pingSamples = New-Object 'Collections.Generic.List[object]'
 $maxTemperatureMillic = 0L
 $minMemAvailableKb = [int64]::MaxValue
 $minRootfsAvailableBytes = [int64]::MaxValue
+$minDataAvailableBytes = [int64]::MaxValue
 $maxJournalBytes = 0L
 $firstEmmcSectorsWritten = -1L
 $lastEmmcSectorsWritten = -1L
@@ -210,6 +231,19 @@ printf 'PACKET_STATE=%s\n' "$packet_state"
 printf 'TEMP_MAX='; sort -nr /sys/class/thermal/thermal_zone*/temp | head -n 1
 sed -n 's/^MemAvailable:[[:space:]]*\([0-9][0-9]*\).*/MEM_AVAILABLE_KB=\1/p' /proc/meminfo
 printf 'ROOTFS_AVAILABLE_BYTES='; df -B1 --output=avail / | tail -n 1 | xargs
+root_blocks=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
+root_block_size=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
+printf 'ROOT_FS_BYTES=%s\n' "$((root_blocks * root_block_size))"
+printf 'DATA='; findmnt -nro SOURCE /data
+printf 'DATA_UUID='; findmnt -nro UUID /data
+data_blocks=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
+data_block_size=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
+printf 'DATA_FS_BYTES=%s\n' "$((data_blocks * data_block_size))"
+printf 'DATA_AVAILABLE_BYTES='; df -B1 --output=avail /data | tail -n 1 | xargs
+printf 'DATA_OPTIONS='; findmnt -nro OPTIONS /data
+for data_dir in apps backups srv; do test -d "/data/$data_dir" || exit 1; done
+printf 'DATA_DIRS=ready\n'
+printf 'FSTRIM_ENABLED='; systemctl is-enabled fstrim.timer
 printf 'JOURNAL_BYTES='; du -s -B1 /var/log/journal | cut -f1
 printf 'EMMC_SECTORS_WRITTEN='; awk '{print $7}' /sys/block/mmcblk0/stat
 printf 'EMMC_LOGICAL_BLOCK_SIZE='; cat /sys/block/mmcblk0/queue/logical_block_size
@@ -230,6 +264,9 @@ try {
         $temperatureMatch = [regex]::Match($probe.Text, '(?m)^TEMP_MAX=(\d+)\r?$')
         $memoryMatch = [regex]::Match($probe.Text, '(?m)^MEM_AVAILABLE_KB=(\d+)\r?$')
         $rootfsMatch = [regex]::Match($probe.Text, '(?m)^ROOTFS_AVAILABLE_BYTES=(\d+)\r?$')
+        $rootfsBytesMatch = [regex]::Match($probe.Text, '(?m)^ROOT_FS_BYTES=(\d+)\r?$')
+        $dataAvailableMatch = [regex]::Match($probe.Text, '(?m)^DATA_AVAILABLE_BYTES=(\d+)\r?$')
+        $dataFilesystemBytesMatch = [regex]::Match($probe.Text, '(?m)^DATA_FS_BYTES=(\d+)\r?$')
         $journalMatch = [regex]::Match($probe.Text, '(?m)^JOURNAL_BYTES=(\d+)\r?$')
         $emmcSectorsMatch = [regex]::Match($probe.Text, '(?m)^EMMC_SECTORS_WRITTEN=(\d+)\r?$')
         $emmcBlockSizeMatch = [regex]::Match($probe.Text, '(?m)^EMMC_LOGICAL_BLOCK_SIZE=(\d+)\r?$')
@@ -237,7 +274,9 @@ try {
         $packetStateMatch = [regex]::Match($probe.Text, '(?m)^PACKET_STATE=([^\r\n]*)\r?$')
         $serviceRestartMatches = @([regex]::Matches($probe.Text, '(?m)^SERVICE_RESTART=([^:\r\n]+):(\d+)\r?$'))
         if (-not $temperatureMatch.Success -or -not $memoryMatch.Success -or
-            -not $rootfsMatch.Success -or -not $journalMatch.Success -or
+            -not $rootfsMatch.Success -or -not $rootfsBytesMatch.Success -or
+            -not $dataAvailableMatch.Success -or -not $dataFilesystemBytesMatch.Success -or
+            -not $journalMatch.Success -or
             -not $emmcSectorsMatch.Success -or -not $emmcBlockSizeMatch.Success -or
             -not $modemRegistrationMatch.Success -or -not $packetStateMatch.Success -or
             $serviceRestartMatches.Count -ne $ExpectedRestartTrackedServices) {
@@ -246,6 +285,9 @@ try {
         $temperatureMillic = [int64]$temperatureMatch.Groups[1].Value
         $memAvailableKb = [int64]$memoryMatch.Groups[1].Value
         $rootfsAvailableBytes = [int64]$rootfsMatch.Groups[1].Value
+        $rootfsBytes = [int64]$rootfsBytesMatch.Groups[1].Value
+        $dataAvailableBytes = [int64]$dataAvailableMatch.Groups[1].Value
+        $dataFilesystemBytes = [int64]$dataFilesystemBytesMatch.Groups[1].Value
         $journalBytes = [int64]$journalMatch.Groups[1].Value
         $lastEmmcSectorsWritten = [int64]$emmcSectorsMatch.Groups[1].Value
         $currentEmmcBlockSize = [int64]$emmcBlockSizeMatch.Groups[1].Value
@@ -265,6 +307,7 @@ try {
         $maxTemperatureMillic = [Math]::Max($maxTemperatureMillic, $temperatureMillic)
         $minMemAvailableKb = [Math]::Min($minMemAvailableKb, $memAvailableKb)
         $minRootfsAvailableBytes = [Math]::Min($minRootfsAvailableBytes, $rootfsAvailableBytes)
+        $minDataAvailableBytes = [Math]::Min($minDataAvailableBytes, $dataAvailableBytes)
         $maxJournalBytes = [Math]::Max($maxJournalBytes, $journalBytes)
         if ($probe.Text -notmatch "(?m)^BOOT_ID=$([regex]::Escape($bootId))\r?$" -or
             $probe.Text -notmatch '(?m)^STATE=running\r?$' -or
@@ -272,6 +315,14 @@ try {
             $probe.Text -notmatch '(?m)^FAILED=0\r?$' -or
             $probe.Text -notmatch '(?m)^UDC=ci_hdrc\.0\r?$' -or
             $probe.Text -notmatch '(?m)^TCP_ADB=listening\r?$' -or
+            $probe.Text -notmatch '(?m)^DATA=/dev/mmcblk0p29\r?$' -or
+            $probe.Text -notmatch "(?m)^DATA_UUID=$([regex]::Escape($ExpectedDataUuid))\r?`$" -or
+            $probe.Text -notmatch '(?m)^DATA_DIRS=ready\r?$' -or
+            $probe.Text -notmatch '(?m)^FSTRIM_ENABLED=enabled\r?$' -or
+            $probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\brw\b' -or
+            $probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnoatime\b' -or
+            $probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnosuid\b' -or
+            $probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnodev\b' -or
             $probe.Text -notmatch '(?m)^FUNCTION=acm\.usb0\r?$' -or
             $probe.Text -notmatch '(?m)^FUNCTION=rndis\.usb0\r?$' -or
             $remoteprocMatches.Count -ne 2 -or
@@ -281,6 +332,9 @@ try {
             $temperatureMillic -gt 85000 -or
             $memAvailableKb -lt 32768 -or
             $rootfsAvailableBytes -lt $RequiredRootfsAvailableBytes -or
+            $rootfsBytes -ne [int64]$ExpectedRootfsBytes -or
+            $dataFilesystemBytes -ne [int64]$ExpectedDataFilesystemBytes -or
+            $dataAvailableBytes -lt $RequiredDataAvailableBytes -or
             $journalBytes -gt $AllowedJournalBytes -or
             $currentEmmcBlockSize -ne $emmcLogicalBlockSize -or
             $lastEmmcSectorsWritten -lt $firstEmmcSectorsWritten) {
@@ -298,7 +352,7 @@ try {
             throw "RNDIS 网卡身份、状态或 SSH 发生变化"
         }
         $modemRegisteredText = $modemRegistered.ToString().ToLowerInvariant()
-        $result = "time=$(Get-Date -Format o) uptime_seconds=$uptimeSeconds ping_samples=$($pingSamples.Count) remoteprocs=2 service_restart_changes=0 modem_registered=$modemRegisteredText temperature_millic=$temperatureMillic mem_available_kb=$memAvailableKb rootfs_available_bytes=$rootfsAvailableBytes journal_bytes=$journalBytes emmc_sectors_written=$lastEmmcSectorsWritten result=pass"
+        $result = "time=$(Get-Date -Format o) uptime_seconds=$uptimeSeconds ping_samples=$($pingSamples.Count) remoteprocs=2 service_restart_changes=0 modem_registered=$modemRegisteredText temperature_millic=$temperatureMillic mem_available_kb=$memAvailableKb rootfs_available_bytes=$rootfsAvailableBytes data_available_bytes=$dataAvailableBytes journal_bytes=$journalBytes emmc_sectors_written=$lastEmmcSectorsWritten result=pass"
         $probeResults.Add($result)
         Write-Host $result
         if ($uptimeSeconds -ge $targetUptimeSeconds) { break }
@@ -340,6 +394,12 @@ $summary = @(
     "max_temperature_millic=$maxTemperatureMillic"
     "min_mem_available_kb=$minMemAvailableKb"
     "min_rootfs_available_bytes=$minRootfsAvailableBytes"
+    "root_filesystem_bytes=$ExpectedRootfsBytes"
+    "data=/dev/mmcblk0p29"
+    "data_filesystem_bytes=$ExpectedDataFilesystemBytes"
+    "data_uuid=$ExpectedDataUuid"
+    "min_data_available_bytes=$minDataAvailableBytes"
+    "fstrim_timer=enabled"
     "max_journal_bytes=$maxJournalBytes"
     "emmc_logical_block_size=$emmcLogicalBlockSize"
     "emmc_write_sectors_delta=$($lastEmmcSectorsWritten - $firstEmmcSectorsWritten)"

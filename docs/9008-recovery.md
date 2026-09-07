@@ -39,8 +39,10 @@ out/recovery-baseline/zu02-recovery-manifest.json
 - system
 - recovery
 
-当前 Debian 安装器只覆盖 boot 和 system，因此 GPT 与 bootloader 完整时优先使用 OS-only 恢复。
-该流程不会写 modem、modemst、fsg、persist、DDR、sbl1、aboot、rpm、tz、cache、userdata 或 GPT。
+当前 Debian 安装器覆盖 boot、system 和 userdata。GPT 与 bootloader 完整时仍优先使用 OS-only
+恢复 boot/system/recovery，但 Android userdata 还必须按目标 Android 固件的要求重新格式化或恢复。
+该流程本身不会写 modem、modemst、fsg、persist、DDR、sbl1、aboot、rpm、tz、cache、userdata
+或 GPT。
 
 ## 全分区恢复
 

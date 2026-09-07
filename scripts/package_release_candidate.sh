@@ -45,6 +45,7 @@ for required in \
     "$PROJECT_ROOT/docs/release-notes.md" "$PROJECT_ROOT/docs/licensing.md" \
     "$PROJECT_ROOT/LICENSES/MIT.txt" "$PROJECT_ROOT/LICENSES/GPL-2.0-only.txt" \
     "$DEBIAN_OUT/debian-bookworm-armhf-system.ext4" \
+    "$DEBIAN_OUT/debian-bookworm-armhf-data.ext4" \
     "$DEBIAN_OUT/boot-debian-system.img" \
     "$DEBIAN_OUT/BUILD-MANIFEST.txt" "$DEBIAN_OUT/REPRODUCIBILITY.txt"; do
     [[ -s "$required" ]] || die "缺少发布输入：$required"
@@ -95,17 +96,21 @@ install -m 0644 "$PROJECT_ROOT/LICENSES/GPL-2.0-only.txt" "$binary_stage/LICENSE
 install -m 0644 "$PROJECT_ROOT/install.bat" "$binary_stage/install.bat"
 install -m 0644 "$PROJECT_ROOT/enter-fastboot.bat" "$binary_stage/enter-fastboot.bat"
 install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-system.ext4" "$binary_stage/"
+install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-data.ext4" "$binary_stage/"
 install -m 0644 "$DEBIAN_OUT/boot-debian-system.img" "$binary_stage/"
 install -m 0644 "$PROJECT_ROOT/scripts/install_debian_system.ps1" "$binary_stage/scripts/"
 install -m 0644 "$PROJECT_ROOT/scripts/enter_fastboot.ps1" "$binary_stage/scripts/"
 
 rootfs_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-system.ext4" | awk '{print $1}')"
+data_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-data.ext4" | awk '{print $1}')"
 boot_hash="$(sha256sum "$binary_stage/boot-debian-system.img" | awk '{print $1}')"
 manifest_value() {
     sed -n "s/^$1=//p" "$DEBIAN_OUT/BUILD-MANIFEST.txt"
 }
 [[ "$(manifest_value rootfs_image_sha256)" == "$rootfs_hash" ]] \
     || die "rootfs 哈希与构建清单不一致"
+[[ "$(manifest_value data_image_sha256)" == "$data_hash" ]] \
+    || die "data 哈希与构建清单不一致"
 [[ "$(manifest_value boot_image_sha256)" == "$boot_hash" ]] \
     || die "boot 哈希与构建清单不一致"
 for reproducibility_field in \
@@ -118,6 +123,9 @@ done
 grep -Fqx "$rootfs_hash  debian-bookworm-armhf-system.ext4" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
     || die "当前 rootfs 不属于已通过双构建比较的产物"
+grep -Fqx "$data_hash  debian-bookworm-armhf-data.ext4" \
+    "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
+    || die "当前 data 不属于已通过双构建比较的产物"
 grep -Fqx "$boot_hash  boot-debian-system.img" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
     || die "当前 boot 不属于已通过双构建比较的产物"
@@ -131,8 +139,9 @@ platform=msm8909
 hardware_target=zu02-dw01
 device=ZU02_main_v1.1-DW01
 soc=MSM8909
-persistent_partitions=boot,system
+persistent_partitions=boot,system,userdata
 android_system_partition=overwritten
+android_userdata_partition=erased
 boot_mode=stock-aboot-direct-qcdt
 bootloader_changes=none
 closed_firmware=device-modem-persist-read-only
@@ -145,6 +154,18 @@ hostname=$(manifest_value hostname)
 target_partition=$(manifest_value target_partition)
 target_partition_bytes=$(manifest_value target_partition_bytes)
 rootfs_auto_grow=$(manifest_value rootfs_auto_grow)
+data_partition=$(manifest_value data_partition)
+data_partition_bytes=$(manifest_value data_partition_bytes)
+data_filesystem_bytes=$(manifest_value data_filesystem_bytes)
+data_uuid=$(manifest_value data_uuid)
+data_label=$(manifest_value data_label)
+data_mount=$(manifest_value data_mount)
+data_mount_options=$(manifest_value data_mount_options)
+data_auto_grow=$(manifest_value data_auto_grow)
+data_initial_directories=$(manifest_value data_initial_directories)
+userdata_previous_contents=$(manifest_value userdata_previous_contents)
+fstrim=$(manifest_value fstrim)
+time_sync=$(manifest_value time_sync)
 reboot_mode=$(manifest_value reboot_mode)
 device_ip=$(manifest_value device_ip)
 root_password=$(manifest_value root_password)
@@ -176,6 +197,8 @@ qcdt_record_count=$(manifest_value qcdt_record_count)
 qcdt_unique_dtb_count=$(manifest_value qcdt_unique_dtb_count)
 rootfs_image=debian-bookworm-armhf-system.ext4
 rootfs_image_sha256=$rootfs_hash
+data_image=debian-bookworm-armhf-data.ext4
+data_image_sha256=$data_hash
 boot_image=boot-debian-system.img
 boot_image_sha256=$boot_hash
 EOF
@@ -214,4 +237,4 @@ rm -rf -- "$stage_dir"
 
 log "候选发布包完成：$release_dir"
 cat "$release_dir/SHA256SUMS"
-printf '注意：有效 SIM 蜂窝数据/NAT 与最终安装/恢复回归完成前，发布状态保持 candidate。\n'
+printf '注意：首个候选不声明短信、IPv6、SIM 热插拔、多客户端或长期蜂窝持续流量耐久性。\n'

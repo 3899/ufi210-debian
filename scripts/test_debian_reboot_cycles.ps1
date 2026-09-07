@@ -21,7 +21,9 @@ $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 $Services = @(
     "zu02-firewall", "zu02-usb-gadget", "adbd", "zu02-usb-watchdog.timer", "zu02-usb-network", "ssh", "dnsmasq",
     "NetworkManager", "serial-getty@ttyGS0.service", "zu02-wcnss", "qrtr-ns", "rmtfs",
-    "zu02-mpss", "zu02-modem-prepare", "ModemManager", "zu02-modem-register"
+    "zu02-mpss", "zu02-modem-prepare", "ModemManager", "zu02-modem-register",
+    "ufi210-modem-time-sync",
+    "fstrim.timer"
 )
 
 function Write-Utf8File {
@@ -101,7 +103,9 @@ function Get-UsbFingerprint {
         @($devices | Where-Object { $_.InstanceId -notmatch '&MI_[0-9A-F]{2}\\' }).Count -ne 1) {
         throw "Debian USB 复合设备不完整：期望父设备、RNDIS 和 ACM 各一个"
     }
-    return ($devices.InstanceId -join "`n")
+    [string[]]$instanceIds = @($devices | ForEach-Object { $_.InstanceId })
+    [Array]::Sort($instanceIds, [StringComparer]::OrdinalIgnoreCase)
+    return ($instanceIds -join "`n")
 }
 
 function Get-RndisAdapter {
@@ -146,6 +150,18 @@ function Get-RuntimeProbe {
 set -eu
 printf 'BOOT_ID='; cat /proc/sys/kernel/random/boot_id
 printf 'ROOT='; findmnt -nro SOURCE /
+root_blocks=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
+root_block_size=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
+printf 'ROOT_FS_BYTES=%s\n' "$((root_blocks * root_block_size))"
+printf 'DATA='; findmnt -nro SOURCE /data
+printf 'DATA_UUID='; findmnt -nro UUID /data
+data_blocks=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
+data_block_size=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
+printf 'DATA_FS_BYTES=%s\n' "$((data_blocks * data_block_size))"
+printf 'DATA_OPTIONS='; findmnt -nro OPTIONS /data
+for data_dir in apps backups srv; do test -d "/data/$data_dir"; done
+printf 'DATA_DIRS=ready\n'
+printf 'FSTRIM_ENABLED='; systemctl is-enabled fstrim.timer
 printf 'KERNEL='; uname -r
 printf 'ARCH='; uname -m
 printf 'MODEL='; grep -a -o 'DW01 (ZU02_main_v1.1)' /proc/device-tree/model
@@ -177,6 +193,12 @@ function Assert-RuntimeProbe {
     $checks = @(
         "BOOT_ID=$ExpectedBootId",
         "ROOT=/dev/mmcblk0p21",
+        "ROOT_FS_BYTES=$ExpectedRootfsBytes",
+        "DATA=/dev/mmcblk0p29",
+        "DATA_UUID=$ExpectedDataUuid",
+        "DATA_FS_BYTES=$ExpectedDataFilesystemBytes",
+        "DATA_DIRS=ready",
+        "FSTRIM_ENABLED=enabled",
         "KERNEL=7.0.0-msm8909",
         "ARCH=armv7l",
         "MODEL=DW01 (ZU02_main_v1.1)",
@@ -190,6 +212,12 @@ function Assert-RuntimeProbe {
         if ($Probe.Text -notmatch "(?m)^$([regex]::Escape($check))\r?$") {
             throw "运行态探针缺少：$check`r`n$($Probe.Text)"
         }
+    }
+    if ($Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\brw\b' -or
+        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnoatime\b' -or
+        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnosuid\b' -or
+        $Probe.Text -notmatch '(?m)^DATA_OPTIONS=.*\bnodev\b') {
+        throw "运行态 /data 挂载选项不匹配：`r`n$($Probe.Text)"
     }
     if ($Probe.Text -notmatch '(?m)^CMDLINE=.*\breboot=warm\b' -or
         $Probe.Text -notmatch '(?m)^CMDLINE=.*\broot=PARTLABEL=system\b') {
@@ -240,16 +268,25 @@ function Wait-ManagementReady {
 
 $Adb = Resolve-Adb
 $Manifest = Join-Path $ProjectRoot "out\mainline\debian-system\BUILD-MANIFEST.txt"
-if ((-not $ExpectedBootSha256) -or $BootImageBytes -eq 0) {
-    if (-not (Test-Path -LiteralPath $Manifest -PathType Leaf)) {
-        throw "缺少 system 构建 manifest：$Manifest"
-    }
-    $manifestValues = @{}
-    foreach ($line in Get-Content -LiteralPath $Manifest -Encoding UTF8) {
-        if ($line -match '^([^=]+)=(.*)$') { $manifestValues[$matches[1]] = $matches[2] }
-    }
-    if (-not $ExpectedBootSha256) { $ExpectedBootSha256 = $manifestValues['boot_image_sha256'] }
-    if ($BootImageBytes -eq 0) { $BootImageBytes = [int]$manifestValues['boot_image_bytes'] }
+if (-not (Test-Path -LiteralPath $Manifest -PathType Leaf)) {
+    throw "缺少 system 构建 manifest：$Manifest"
+}
+$manifestValues = @{}
+foreach ($line in Get-Content -LiteralPath $Manifest -Encoding UTF8) {
+    if ($line -match '^([^=]+)=(.*)$') { $manifestValues[$matches[1]] = $matches[2] }
+}
+if (-not $ExpectedBootSha256) { $ExpectedBootSha256 = $manifestValues['boot_image_sha256'] }
+if ($BootImageBytes -eq 0) { $BootImageBytes = [int]$manifestValues['boot_image_bytes'] }
+$ExpectedRootfsBytes = $manifestValues['target_partition_bytes']
+$ExpectedDataFilesystemBytes = $manifestValues['data_filesystem_bytes']
+$ExpectedDataUuid = $manifestValues['data_uuid']
+if ($ExpectedRootfsBytes -ne '1288491008' -or
+    $manifestValues['data_partition_bytes'] -ne '1928314368' -or
+    $ExpectedDataFilesystemBytes -ne '1928310784' -or
+    $ExpectedDataUuid -ne '89090000-0000-4000-8000-000000000029' -or
+    $manifestValues['data_auto_grow'] -ne 'enabled' -or
+    $manifestValues['fstrim'] -ne 'weekly-systemd-timer') {
+    throw "构建 manifest 的持久存储布局不匹配"
 }
 if ($ExpectedBootSha256 -notmatch '^[0-9a-f]{64}$') { throw "boot SHA256 格式错误" }
 if ($BootImageBytes -le 0 -or $BootImageBytes -gt 33554432) { throw "boot 镜像长度越界" }
@@ -306,6 +343,11 @@ $summary = @(
     "Debian 普通重启回归通过",
     "cycles=$Cycles",
     "root=/dev/mmcblk0p21",
+    "root_filesystem_bytes=$ExpectedRootfsBytes",
+    "data=/dev/mmcblk0p29",
+    "data_filesystem_bytes=$ExpectedDataFilesystemBytes",
+    "data_uuid=$ExpectedDataUuid",
+    "fstrim_timer=enabled",
     "boot_sha256=$ExpectedBootSha256",
     "reboot_mode=warm",
     "usb_functions=rndis-acm",

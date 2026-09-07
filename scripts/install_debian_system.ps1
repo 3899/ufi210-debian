@@ -1,6 +1,7 @@
 ﻿[CmdletBinding()]
 param(
     [switch]$ConfirmPersistentInstall,
+    [switch]$ConfirmEraseUserdata,
     [switch]$ConfirmFastbootTarget,
     [string]$BootBackupPath = "",
     [ValidateRange(60, 600)]
@@ -19,11 +20,15 @@ $Adb = Join-Path $ProjectRoot "adb.exe"
 $Fastboot = Join-Path $ProjectRoot "fastboot.exe"
 $ArtifactRoot = Join-Path $ProjectRoot "out\mainline\debian-system"
 $RootfsImage = Join-Path $ArtifactRoot "debian-bookworm-armhf-system.ext4"
+$DataImage = Join-Path $ArtifactRoot "debian-bookworm-armhf-data.ext4"
 $BootImage = Join-Path $ArtifactRoot "boot-debian-system.img"
 $ManifestPath = Join-Path $ArtifactRoot "BUILD-MANIFEST.txt"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 $BootPartitionBytes = 33554432L
 $SystemPartitionBytes = 1288491008L
+$DataPartitionBytes = 1928314368L
+$DataFilesystemBytes = 1928310784L
+$DataFilesystemUuid = "89090000-0000-4000-8000-000000000029"
 $TcpAdbSerial = "${DeviceIp}:5555"
 $UpgradeUsbAdbSerial = "ZU02-DW01"
 
@@ -38,6 +43,7 @@ if (-not (Test-Path -LiteralPath $Fastboot -PathType Leaf)) {
 if (-not (Test-Path -LiteralPath $RootfsImage -PathType Leaf)) {
     $ArtifactRoot = $ProjectRoot
     $RootfsImage = Join-Path $ArtifactRoot "debian-bookworm-armhf-system.ext4"
+    $DataImage = Join-Path $ArtifactRoot "debian-bookworm-armhf-data.ext4"
     $BootImage = Join-Path $ArtifactRoot "boot-debian-system.img"
     $ManifestPath = Join-Path $ArtifactRoot "INSTALL-MANIFEST.txt"
 }
@@ -86,7 +92,7 @@ function Assert-Hash {
 
 function Get-AdbDevices {
     param([switch]$AllowFailure)
-    $result = Invoke-Native $Adb @("devices", "-l") -AllowFailure
+    $result = Invoke-Native -Executable $Adb -CommandArgs @("devices", "-l") -AllowFailure
     if ($result.ExitCode -ne 0) {
         if ($AllowFailure) { return @() }
         throw "无法枚举 ADB 设备：`r`n$($result.Text)"
@@ -97,7 +103,7 @@ function Get-AdbDevices {
 }
 
 function Get-FastbootDevice {
-    $result = Invoke-Native $Fastboot @("devices") -AllowFailure
+    $result = Invoke-Native -Executable $Fastboot -CommandArgs @("devices") -AllowFailure
     [string[]]$devices = @($result.Text -split "`r?`n" | ForEach-Object {
         if ($_ -match '^([^\s]+)\s+fastboot\s*$') { $Matches[1] }
     })
@@ -121,7 +127,7 @@ function Wait-TcpAdb {
     param([int]$TimeoutSeconds)
     $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
     do {
-        Invoke-Native $Adb @("connect", $TcpAdbSerial) -AllowFailure | Out-Null
+        Invoke-Native -Executable $Adb -CommandArgs @("connect", $TcpAdbSerial) -AllowFailure | Out-Null
         $devices = Get-AdbDevices -AllowFailure
         if ($devices -contains $TcpAdbSerial) { return }
         Start-Sleep -Seconds 1
@@ -142,7 +148,7 @@ function Wait-TcpAdbOffline {
 
 function Get-FastbootVariable {
     param([string]$Serial, [string]$Name, [switch]$AllowEmpty)
-    $result = Invoke-Native $Fastboot @("-s", $Serial, "getvar", $Name) -AllowFailure
+    $result = Invoke-Native -Executable $Fastboot -CommandArgs @("-s", $Serial, "getvar", $Name) -AllowFailure
     $escapedName = [regex]::Escape($Name)
     if ($result.ExitCode -ne 0) {
         throw "无法读取 fastboot getvar ${Name}：`r`n$($result.Text)"
@@ -168,14 +174,14 @@ function Get-HexBytes {
 function Save-AndroidBoot {
     param([string]$Serial, [string]$Destination)
     $remote = "/data/local/tmp/ufi210-boot-backup.img"
-    Invoke-Native $Adb @(
+    Invoke-Native -Executable $Adb -CommandArgs @(
         "-s", $Serial, "shell",
         "su -c 'dd if=/dev/block/bootdevice/by-name/boot of=$remote bs=1048576 2>/dev/null && chmod 0644 $remote'"
     ) | Out-Null
     try {
-        Invoke-Native $Adb @("-s", $Serial, "pull", $remote, $Destination) | Out-Null
+        Invoke-Native -Executable $Adb -CommandArgs @("-s", $Serial, "pull", $remote, $Destination) | Out-Null
     } finally {
-        Invoke-Native $Adb @("-s", $Serial, "shell", "su -c 'rm -f $remote'") -AllowFailure | Out-Null
+        Invoke-Native -Executable $Adb -CommandArgs @("-s", $Serial, "shell", "su -c 'rm -f $remote'") -AllowFailure | Out-Null
     }
     if ((Get-Item -LiteralPath $Destination).Length -ne $BootPartitionBytes) {
         throw "boot 备份尺寸错误：$Destination"
@@ -185,14 +191,14 @@ function Save-AndroidBoot {
 function Save-DebianBoot {
     param([string]$Serial, [string]$Destination)
     $remote = "/tmp/ufi210-boot-backup.img"
-    Invoke-Native $Adb @(
+    Invoke-Native -Executable $Adb -CommandArgs @(
         "-s", $Serial, "shell",
         "dd if=/dev/mmcblk0p20 of=$remote bs=1048576 2>/dev/null && chmod 0644 $remote"
     ) | Out-Null
     try {
-        Invoke-Native $Adb @("-s", $Serial, "pull", $remote, $Destination) | Out-Null
+        Invoke-Native -Executable $Adb -CommandArgs @("-s", $Serial, "pull", $remote, $Destination) | Out-Null
     } finally {
-        Invoke-Native $Adb @("-s", $Serial, "shell", "rm -f $remote") -AllowFailure | Out-Null
+        Invoke-Native -Executable $Adb -CommandArgs @("-s", $Serial, "shell", "rm -f $remote") -AllowFailure | Out-Null
     }
     if ((Get-Item -LiteralPath $Destination).Length -ne $BootPartitionBytes) {
         throw "boot 备份尺寸错误：$Destination"
@@ -218,7 +224,21 @@ fs_block_size=$(dumpe2fs -h /dev/mmcblk0p21 2>/dev/null | sed -n 's/^Block size:
 test "$fs_block_count" -gt 0
 test "$fs_block_size" -gt 0
 test "$((fs_block_count * fs_block_size))" = 1288491008
-systemctl is-active NetworkManager ssh adbd zu02-usb-watchdog.timer zu02-wcnss zu02-mpss ModemManager
+test "$(findmnt -nro SOURCE /data)" = /dev/mmcblk0p29
+test "$(findmnt -nro FSTYPE /data)" = ext4
+test "$(findmnt -nro UUID /data)" = __DATA_FILESYSTEM_UUID__
+test "$(blockdev --getsize64 /dev/mmcblk0p29)" = 1928314368
+data_block_count=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block count:[[:space:]]*//p')
+data_block_size=$(dumpe2fs -h /dev/mmcblk0p29 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
+test "$data_block_count" -gt 0
+test "$data_block_size" -gt 0
+test "$((data_block_count * data_block_size))" = __DATA_FILESYSTEM_BYTES__
+for data_dir in apps backups srv; do test -d "/data/$data_dir"; done
+data_probe="/data/.ufi210-install-write-test-$$"
+printf 'ok\n' > "$data_probe"
+test "$(cat "$data_probe")" = ok
+rm -f "$data_probe"
+systemctl is-active NetworkManager ssh adbd zu02-usb-watchdog.timer zu02-wcnss zu02-mpss ModemManager fstrim.timer
 test "$(systemctl --failed --no-legend --plain | wc -l)" = 0
 test "$(nmcli -t -f DEVICE,STATE device status | grep '^usb0:')" = usb0:unmanaged
 ip -4 -o address show dev usb0 | grep -q ' 192.168.68.1/24 '
@@ -234,9 +254,11 @@ echo SYSTEM_RUNTIME_OK
 '@
     $command = $command.Replace("__BOOT_IMAGE_BYTES__", "$((Get-Item -LiteralPath $BootImage).Length)")
     $command = $command.Replace("__BOOT_IMAGE_SHA256__", $bootHash)
+    $command = $command.Replace("__DATA_FILESYSTEM_UUID__", $DataFilesystemUuid)
+    $command = $command.Replace("__DATA_FILESYSTEM_BYTES__", "$DataFilesystemBytes")
     $deadline = (Get-Date).AddSeconds($LinuxTimeoutSeconds)
     do {
-        $result = Invoke-Native $Adb @("-s", $TcpAdbSerial, "shell", $command) -AllowFailure
+        $result = Invoke-Native -Executable $Adb -CommandArgs @("-s", $TcpAdbSerial, "shell", $command) -AllowFailure
         if ($result.ExitCode -eq 0 -and $result.Text -match '(?m)^SYSTEM_RUNTIME_OK\r?$') {
             Write-Utf8File (Join-Path $OutputDir "runtime-$Phase.txt") ($result.Text + "`r`n")
             return
@@ -250,7 +272,10 @@ foreach ($tool in @($Adb, $Fastboot)) {
     if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { throw "缺少工具：$tool" }
 }
 if (-not $ConfirmPersistentInstall) {
-    throw "本脚本会持久覆盖 system 和 boot；确认目标和恢复准备后使用 -ConfirmPersistentInstall"
+    throw "本脚本会持久覆盖 system、userdata 和 boot；确认目标和恢复准备后使用 -ConfirmPersistentInstall"
+}
+if (-not $ConfirmEraseUserdata) {
+    throw "本脚本会永久清除 userdata 的全部原有内容；确认无需保留后使用 -ConfirmEraseUserdata"
 }
 
 $manifest = Read-KeyValues $ManifestPath
@@ -260,6 +285,17 @@ $required = [ordered]@{
     target_partition = "system"
     target_partition_bytes = "$SystemPartitionBytes"
     rootfs_auto_grow = "enabled"
+    data_partition = "userdata"
+    data_partition_bytes = "$DataPartitionBytes"
+    data_filesystem_bytes = "$DataFilesystemBytes"
+    data_uuid = "$DataFilesystemUuid"
+    data_label = "ufi210-data"
+    data_mount = "/data"
+    data_mount_options = "defaults,noatime,nosuid,nodev,nofail,x-systemd.growfs,x-systemd.device-timeout=30s"
+    data_auto_grow = "enabled"
+    data_initial_directories = "apps,backups,srv"
+    userdata_previous_contents = "erased-by-installer"
+    fstrim = "weekly-systemd-timer"
     reboot_mode = "warm"
     device_ip = "192.168.68.1"
     root_password = "simadmin"
@@ -284,6 +320,7 @@ foreach ($key in $required.Keys) {
     }
 }
 $rootfsHash = Assert-Hash $RootfsImage $manifest.rootfs_image_sha256
+$dataHash = Assert-Hash $DataImage $manifest.data_image_sha256
 $bootHash = Assert-Hash $BootImage $manifest.boot_image_sha256
 if ((Get-Item -LiteralPath $RootfsImage).Length -ge $SystemPartitionBytes) {
     throw "rootfs 镜像不小于 system 分区"
@@ -291,12 +328,15 @@ if ((Get-Item -LiteralPath $RootfsImage).Length -ge $SystemPartitionBytes) {
 if ((Get-Item -LiteralPath $BootImage).Length -ge $BootPartitionBytes) {
     throw "boot image 不小于 boot 分区"
 }
+if ((Get-Item -LiteralPath $DataImage).Length -ge $DataPartitionBytes) {
+    throw "data image 不小于 userdata 分区"
+}
 
 if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\persistent-install" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) (Get-Date -Format "yyyyMMdd-HHmmss")
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-Invoke-Native $Adb @("connect", $TcpAdbSerial) -AllowFailure | Out-Null
+Invoke-Native -Executable $Adb -CommandArgs @("connect", $TcpAdbSerial) -AllowFailure | Out-Null
 $adbDevices = @(Get-AdbDevices)
 $fastbootSerial = Get-FastbootDevice
 $knownDebianAdbSerials = @($TcpAdbSerial, $UpgradeUsbAdbSerial)
@@ -317,9 +357,9 @@ if ($adbDevices.Count -gt 1) {
 if ($selectedAdbSerial -and $fastbootSerial) { throw "同时检测到 ADB 和 fastboot 设备，拒绝继续" }
 
 if ($selectedAdbSerial) {
-    $debianProbe = Invoke-Native $Adb @(
+    $debianProbe = Invoke-Native -Executable $Adb -CommandArgs @(
         "-s", $selectedAdbSerial, "shell",
-        'echo "hostname=$(hostname)"; echo "soc_id=$(cat /sys/devices/soc0/soc_id 2>/dev/null)"; echo "root=$(findmnt -nro SOURCE / 2>/dev/null)"; echo "boot_sectors=$(cat /sys/class/block/mmcblk0p20/size 2>/dev/null)"; echo "system_sectors=$(cat /sys/class/block/mmcblk0p21/size 2>/dev/null)"; test -x /system/bin/reboot && echo "reboot_compat=yes"'
+        'echo "hostname=$(hostname)"; echo "soc_id=$(cat /sys/devices/soc0/soc_id 2>/dev/null)"; echo "root=$(findmnt -nro SOURCE / 2>/dev/null)"; echo "boot_sectors=$(cat /sys/class/block/mmcblk0p20/size 2>/dev/null)"; echo "system_sectors=$(cat /sys/class/block/mmcblk0p21/size 2>/dev/null)"; echo "userdata_sectors=$(cat /sys/class/block/mmcblk0p29/size 2>/dev/null)"; test -x /system/bin/reboot && echo "reboot_compat=yes"'
     ) -AllowFailure
     $isDebian = $debianProbe.ExitCode -eq 0 -and
         $debianProbe.Text -match '(?m)^hostname=ufi210\r?$' -and
@@ -327,6 +367,7 @@ if ($selectedAdbSerial) {
         $debianProbe.Text -match '(?m)^root=/dev/mmcblk0p21\r?$' -and
         $debianProbe.Text -match '(?m)^boot_sectors=65536\r?$' -and
         $debianProbe.Text -match '(?m)^system_sectors=2516584\r?$' -and
+        $debianProbe.Text -match '(?m)^userdata_sectors=3766239\r?$' -and
         $debianProbe.Text -match '(?m)^reboot_compat=yes\r?$'
 
     if ($isDebian) {
@@ -334,7 +375,7 @@ if ($selectedAdbSerial) {
             $BootBackupPath = Join-Path $OutputDir "boot-before-install.img"
             Save-DebianBoot $selectedAdbSerial $BootBackupPath
         }
-        $rebootResult = Invoke-Native $Adb @(
+        $rebootResult = Invoke-Native -Executable $Adb -CommandArgs @(
             "-s", $selectedAdbSerial, "shell", "/system/bin/reboot", "bootloader"
         ) -AllowFailure
         Write-Utf8File (Join-Path $OutputDir "debian-reboot-fastboot.txt") ((@(
@@ -343,22 +384,23 @@ if ($selectedAdbSerial) {
         $fastbootSerial = Wait-Fastboot $FastbootTimeoutSeconds
         if (-not $fastbootSerial) { throw "Debian 重启后 fastboot 未出现；尚未写入分区" }
     } else {
-        $probe = Invoke-Native $Adb @(
+        $probe = Invoke-Native -Executable $Adb -CommandArgs @(
             "-s", $selectedAdbSerial, "shell",
-            'echo "device=$(getprop ro.product.device)"; echo "soc_id=$(cat /sys/devices/soc0/soc_id)"; echo "boot_completed=$(getprop sys.boot_completed)"; echo "boot_sectors=$(cat /sys/class/block/mmcblk0p20/size)"; echo "system_sectors=$(cat /sys/class/block/mmcblk0p21/size)"'
+            'echo "device=$(getprop ro.product.device)"; echo "soc_id=$(cat /sys/devices/soc0/soc_id)"; echo "boot_completed=$(getprop sys.boot_completed)"; echo "boot_sectors=$(cat /sys/class/block/mmcblk0p20/size)"; echo "system_sectors=$(cat /sys/class/block/mmcblk0p21/size)"; echo "userdata_sectors=$(cat /sys/class/block/mmcblk0p29/size)"'
         )
         if ($probe.Text -notmatch '(?m)^device=msm8909\r?$' -or
             $probe.Text -notmatch '(?m)^soc_id=245\r?$' -or
             $probe.Text -notmatch '(?m)^boot_completed=1\r?$' -or
             $probe.Text -notmatch '(?m)^boot_sectors=65536\r?$' -or
-            $probe.Text -notmatch '(?m)^system_sectors=2516584\r?$') {
+            $probe.Text -notmatch '(?m)^system_sectors=2516584\r?$' -or
+            $probe.Text -notmatch '(?m)^userdata_sectors=3766239\r?$') {
             throw "目标 Android 身份或分区布局不匹配：`r`n$($probe.Text)"
         }
         if (-not $BootBackupPath) {
             $BootBackupPath = Join-Path $OutputDir "boot-before-install.img"
             Save-AndroidBoot $selectedAdbSerial $BootBackupPath
         }
-        Invoke-Native $Adb @("-s", $selectedAdbSerial, "reboot", "bootloader") | Out-Null
+        Invoke-Native -Executable $Adb -CommandArgs @("-s", $selectedAdbSerial, "reboot", "bootloader") | Out-Null
         $fastbootSerial = Wait-Fastboot $FastbootTimeoutSeconds
         if (-not $fastbootSerial) { throw "Android 重启后 fastboot 未出现；尚未写入分区" }
     }
@@ -386,41 +428,50 @@ if ([string]::IsNullOrWhiteSpace($bootSizeValue)) {
     $bootSizeSource = "fastboot getvar"
 }
 $systemSize = Get-HexBytes (Get-FastbootVariable $fastbootSerial "partition-size:system")
+$dataSize = Get-HexBytes (Get-FastbootVariable $fastbootSerial "partition-size:userdata")
 if ($product -notmatch '(?i)^MSM8909$' -or
-    $bootSize -ne $BootPartitionBytes -or $systemSize -ne $SystemPartitionBytes) {
-    throw "fastboot 目标或分区布局不匹配：product=$product boot=$bootSize system=$systemSize"
+    $bootSize -ne $BootPartitionBytes -or $systemSize -ne $SystemPartitionBytes -or
+    $dataSize -ne $DataPartitionBytes) {
+    throw "fastboot 目标或分区布局不匹配：product=$product boot=$bootSize system=$systemSize userdata=$dataSize"
 }
 
 Write-Utf8File (Join-Path $OutputDir "preflight.txt") ((@(
     "started_at=$(Get-Date -Format o)", "product=$product",
     "boot_partition_bytes=$bootSize", "boot_partition_size_source=$bootSizeSource",
     "system_partition_bytes=$systemSize",
-    "rootfs_sha256=$rootfsHash", "boot_sha256=$bootHash",
+    "userdata_partition_bytes=$dataSize",
+    "rootfs_sha256=$rootfsHash", "data_sha256=$dataHash", "boot_sha256=$bootHash",
     "boot_backup=$BootBackupPath", "boot_backup_sha256=$bootBackupHash"
 ) -join "`r`n") + "`r`n")
 
 Write-Host "持久写入 Debian system rootfs。"
-$flashSystem = Invoke-Native $Fastboot @("-s", $fastbootSerial, "flash", "system", $RootfsImage)
+$flashSystem = Invoke-Native -Executable $Fastboot -CommandArgs @("-s", $fastbootSerial, "flash", "system", $RootfsImage)
 Write-Utf8File (Join-Path $OutputDir "flash-system.txt") ($flashSystem.Text + "`r`n")
 
+Write-Host "清除 userdata 原有内容并写入 Debian /data 文件系统。"
+$eraseData = Invoke-Native -Executable $Fastboot -CommandArgs @("-s", $fastbootSerial, "erase", "userdata")
+Write-Utf8File (Join-Path $OutputDir "erase-userdata.txt") ($eraseData.Text + "`r`n")
+$flashData = Invoke-Native -Executable $Fastboot -CommandArgs @("-s", $fastbootSerial, "flash", "userdata", $DataImage)
+Write-Utf8File (Join-Path $OutputDir "flash-userdata.txt") ($flashData.Text + "`r`n")
+
 Write-Host "持久写入已通过 QCDT 直启验证的 Debian boot。"
-$flashBoot = Invoke-Native $Fastboot @("-s", $fastbootSerial, "flash", "boot", $BootImage)
+$flashBoot = Invoke-Native -Executable $Fastboot -CommandArgs @("-s", $fastbootSerial, "flash", "boot", $BootImage)
 Write-Utf8File (Join-Path $OutputDir "flash-boot.txt") ($flashBoot.Text + "`r`n")
 
 Write-Host "从 RAM 启动同一镜像，验证已写入的 system rootfs。"
-$ramBoot = Invoke-Native $Fastboot @("-s", $fastbootSerial, "boot", $BootImage)
+$ramBoot = Invoke-Native -Executable $Fastboot -CommandArgs @("-s", $fastbootSerial, "boot", $BootImage)
 Write-Utf8File (Join-Path $OutputDir "fastboot-boot.txt") ($ramBoot.Text + "`r`n")
 Assert-DebianRuntime "first-boot"
-$firstBootId = (Invoke-Native $Adb @(
+$firstBootId = (Invoke-Native -Executable $Adb -CommandArgs @(
     "-s", $TcpAdbSerial, "shell", "cat /proc/sys/kernel/random/boot_id"
 )).Text.Trim()
 if ($firstBootId -notmatch '^[0-9a-f-]{36}$') { throw "无法读取首次启动 boot_id：$firstBootId" }
 
 Write-Host "执行普通 warm reboot，验证持久 boot 无需插拔自动返回 Debian。"
-Invoke-Native $Adb @("-s", $TcpAdbSerial, "shell", "sync; reboot") -AllowFailure | Out-Null
+Invoke-Native -Executable $Adb -CommandArgs @("-s", $TcpAdbSerial, "shell", "sync; reboot") -AllowFailure | Out-Null
 Wait-TcpAdbOffline 30
 Assert-DebianRuntime "ordinary-reboot"
-$secondBootId = (Invoke-Native $Adb @(
+$secondBootId = (Invoke-Native -Executable $Adb -CommandArgs @(
     "-s", $TcpAdbSerial, "shell", "cat /proc/sys/kernel/random/boot_id"
 )).Text.Trim()
 if ($secondBootId -notmatch '^[0-9a-f-]{36}$' -or $secondBootId -eq $firstBootId) {
@@ -429,10 +480,10 @@ if ($secondBootId -notmatch '^[0-9a-f-]{36}$' -or $secondBootId -eq $firstBootId
 
 $summary = @(
     "UFI210 Debian 持久安装与重启验收通过",
-    "persistent_partitions=boot,system",
-    "root=/dev/mmcblk0p21", "reboot_mode=warm",
+    "persistent_partitions=boot,system,userdata",
+    "root=/dev/mmcblk0p21", "data=/dev/mmcblk0p29", "reboot_mode=warm",
     "first_boot_id=$firstBootId", "ordinary_reboot_boot_id=$secondBootId",
-    "boot_sha256=$bootHash", "rootfs_source_sha256=$rootfsHash",
+    "boot_sha256=$bootHash", "rootfs_source_sha256=$rootfsHash", "data_source_sha256=$dataHash",
     "boot_backup=$BootBackupPath", "boot_backup_sha256=$bootBackupHash",
     "ssh=${DeviceIp}:22", "adb_tcp=$TcpAdbSerial", "logs=$OutputDir"
 ) -join "`r`n"

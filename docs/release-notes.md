@@ -9,12 +9,16 @@
 ## 系统内容
 
 - 原厂 aboot 通过 QCDT v3 直接启动 DW01 主线 DTB，无需两级 RAM 启动。
-- Debian rootfs 使用 1,288,491,008 字节的 system 分区。
-- boot 和 system 均持久写入；断电或普通重启不再返回 Android。
+- Debian rootfs 使用 1,288,491,008 字节的 system 分区，独立 `/data` 使用
+  1,928,314,368 字节的 userdata 分区。
+- boot、system 和 userdata 均持久写入；断电或普通重启不再返回 Android。
 - rootfs 首次启动通过 `x-systemd.growfs` 扩展到完整 system 分区。
+- `/data` 首次启动扩展到完整 userdata 分区，预建 `apps`、`backups` 和 `srv` 目录。
+- 启用 `noatime` 和每周 `fstrim.timer`，不默认使用 eMMC swap。
 - boot cmdline 固定 `reboot=warm`，避免无电池设备 cold reboot 后无法自行上电。
 - 内核包含 MSM8909 IMEM reboot-mode，rootfs 提供 `/system/bin/reboot` 的 `RESTART2` 兼容入口。
-- Windows 安装器在同一次 fastboot 会话连续写 system 和 boot，不在中途重启。
+- Windows 安装器要求显式确认擦除 userdata，在同一次 fastboot 会话连续写 system、userdata 和
+  boot，不在中途重启，boot 最后写入。
 - 安装后回读 boot 前缀 SHA256，并用不同 boot_id 验证普通重启确实发生。
 
 ## 已验证能力
@@ -28,22 +32,31 @@
 - MPSS、QRTR、只读 RMTFS、BAM-DMUX 和 ModemManager。
 - USB-only 管理防火墙、NetworkManager nftables NAT。
 - 75°C 被动降频阈值和 cpufreq cooling。
-- 双构建逐字节一致；持久安装和 boot 回读通过。
-- 20 次 TCP `adbd` 热重启、10 次普通重启和 20 次预置 AP/managed 循环通过。
-- 10 分钟四核受控负载最高 76°C，30 分钟综合监控的 3623 个 RNDIS ping 零失败。
+- system、data 和 boot 两次独立构建逐字节一致；端到端持久安装和 boot 回读通过。
+- 5 次普通重启和 10 次 TCP `adbd` 热重启通过；普通重启均无需拔插自动返回 Debian。
+- 20 分钟综合监控共 2384 个 RNDIS ping 样本零失败，最高 60°C；10 分钟四核
+  受控负载最高 76°C，cooling state 最高 7。
+- WCNSS 扫描到 28 个 BSS，10 次 AP/managed 切换通过；MPSS/SIM/QMI/AT/ModemManager
+  验收和 LTE 注册通过；只读基础验收未创建 bearer，五个敏感分区哈希不变。
+- 20 轮 LTE 数据连接均获得 IPv4，公网 ICMP/TCP 和运营商 DNS 通过；每轮断开 bearer、删除
+  临时连接，并核对五个敏感分区哈希不变。
+- 隔离下游客户端的 NetworkManager nftables NAT、公网访问、运营商 DNS、网关 dnsmasq 和
+  非 USB 管理端口隔离通过。
+- QMI DMS 启动校时通过，设备时钟与宿主偏差 1 秒，`systemd` failed 为 0。
 
 ## 写入边界
 
-- 写入：`boot`、`system`。
-- 不写入：GPT、aboot、recovery、cache、userdata、modem、modemst1/2、fsg、persist。
-- 原 Android system 被覆盖；恢复 Android 必须使用本机备份。
+- 写入：`boot`、`system`、`userdata`。
+- 不写入：GPT、aboot、recovery、cache、modem、modemst1/2、fsg、persist。
+- 原 Android system 和 userdata 被覆盖；恢复 Android 必须使用本机备份。
 - 闭源 firmware 和 WLAN 校准 NV 从设备既有分区只读使用，不进入发布包。
 
 ## 已知限制
 
 - 仅对 `zu02-dw01` 完成实机验证。
 - 标准 `adb reboot bootloader` 不适用于 Debian `adbd`；项目提供的 ADB shell 兼容入口已完成真机回归。
-- 有效 SIM 的最终 LTE 数据/NAT 回归尚需补测。
+- LTE 数据、DNS 和 NAT 已完成回归；长期蜂窝持续流量耐久性不在首个候选声明范围内。
+- 会建立蜂窝数据连接的测试脚本必须显式传入 `-AllowCellularDataUsage`，运行前需确认 SIM 资费。
 - TCP adbd 不提供 Android 式客户端授权，仅允许经 `usb0` 管理网络访问。
 - 快速反复切换 AP/managed 时，WCN36xx 固件可能返回精确的扫描停止或 STA 清理告警；验收脚本会计数，
   并继续强制核对模式恢复、扫描、BSSID、remoteproc 和 systemd 状态。其他 WCN36xx 错误仍视为失败。

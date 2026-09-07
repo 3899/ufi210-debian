@@ -18,7 +18,8 @@
 - [x] 确认 PCB `ZU02_main_v1.1`、产品 DW01、512 MiB RAM 和约 4 GB eMMC。
 - [x] 记录 boot、system、cache 及敏感分区尺寸。
 - [x] 保存设备自己的原厂分区备份和 9008 恢复输入。
-- [x] 明确安装器禁止写 GPT、aboot、recovery、modem、modemst、fsg、persist 和 userdata。
+- [x] 明确安装器禁止写 GPT、aboot、recovery、cache、modem、modemst、fsg 和 persist；仅在
+  显式确认后擦除并重建 userdata。
 - [ ] 使用设备自己的恢复输入完成一次受控 9008 恢复演练。
 
 ## M1：主线内核与 DTB
@@ -38,8 +39,9 @@
 - [x] 主机名 `ufi210`、固定 RNDIS+ACM、TCP ADB 和 SSH 已完成运行态真机验证。
 - [x] NetworkManager、完整 `nmcli`、简体中文 `nmtui` 可用。
 - [x] 固定 USB 管理服务和默认关闭的 Wi-Fi AP 连接。
-- [x] 安装并启用 `systemd-timesyncd`。
+- [x] 安装并启用 `systemd-timesyncd`；增加只向前校时且带时间范围校验的 QMI DMS 启动校时。
 - [x] 内置 Debian 官方运行时软件源、`ca-certificates` 和 `curl`。
+- [x] 构建并实机验证 userdata 独立 `/data`、首次启动自动扩容和每周 TRIM。
 
 ## M3：Wi-Fi 与蜂窝基础能力
 
@@ -54,7 +56,17 @@
   `out/debian-system-device-test/wifi-ap-device-cycles-20260905-051549/`。
 - [x] 真实断电冷启动后复测 SIM 网络注册；未创建 bearer，敏感分区前后哈希不变，见
   `out/debian-system-device-test/lte-registration-20260905-071357/`。
-- [ ] 有效数据套餐 SIM 到位后复测 LTE 数据、DNS、NAT 和断开清理。
+- [x] 当前 system/data 候选再次完成 WCNSS、MPSS 和 LTE 注册只读验收；关键分区哈希不变，见
+  `out/debian-system-device-test/wcnss-20260906-211153/`、
+  `out/debian-system-device-test/mpss-20260906-211245/` 和
+  `out/debian-system-device-test/lte-registration-20260906-211403/`。
+- [x] `m8-storage-rc2` 完成 20 轮 LTE 数据连接、IPv4、公网 ICMP/TCP、运营商 DNS、断开清理和
+  敏感分区哈希回归，见
+  `out/debian-system-device-test/lte-data-cycles-20260907-095612/`。
+- [x] 隔离下游客户端完成 NetworkManager nftables NAT、公网、运营商 DNS、网关 dnsmasq 和
+  非 USB 管理端口隔离验收，见
+  `out/debian-system-device-test/lte-routing-20260907-100730/`。
+- [x] 所有主动建立蜂窝数据连接的测试脚本增加 `-AllowCellularDataUsage` 显式资费确认保护。
 - [ ] 使用可收发短信的有效 SIM 完成 ModemManager 短信收发回归。
 
 ## M4：网络与安全
@@ -71,6 +83,7 @@
 
 - [x] Debian boot 持久写入 32 MiB boot 分区。
 - [x] Debian rootfs 持久写入 system 分区。
+- [x] Debian data 文件系统持久写入 userdata，并验证普通重启后的 UUID、容量与可写性。
 - [x] boot 分区回读前缀 SHA256 与构建镜像一致。
 - [x] 普通 reboot 前后 boot_id 不同，设备无需插拔自动返回 Debian。
 - [x] 内核 cmdline 固定 `reboot=warm`，运行时 reboot mode 为 warm。
@@ -88,12 +101,14 @@
 ## M6：安装与恢复
 
 - [x] Windows 安装器先备份 boot，再核对型号、SoC、分区尺寸和 manifest。
-- [x] 安装器只包含一次 `flash system` 和一次 `flash boot`，不包含 erase。
-- [x] system 与 boot 在同一次 fastboot 会话写入，中间不重启。
-- [x] 写入后 RAM 启动同一 boot，验收 system，再普通重启验收持久 boot。
+- [x] 安装器在额外确认后只擦除 userdata，并各执行一次 `flash system`、`flash userdata` 和
+  `flash boot`。
+- [x] system、userdata 与 boot 在同一次 fastboot 会话写入，中间不重启，boot 最后写入。
+- [x] 写入后 RAM 启动同一 boot，验收 system 与 `/data`，再普通重启验收持久 boot。
 - [x] 安装器容忍 USB/RNDIS 重枚举期间 ADB 瞬时不可用。
 - [x] 安装器用 boot_id 防止把未发生的重启误判为成功。
-- [ ] 用修正后的最终安装器从完整 Android 恢复状态再执行一次端到端回归。
+- [x] 用修正后的安装器从完整 Android 状态完成端到端安装，见
+  `out/persistent-install/20260906-203502/`。
 
 ## M7：稳定性与温控
 
@@ -110,7 +125,27 @@
   `out/debian-system-device-test/adbd-restart-20260905-044801/`。
 - [x] 最终候选完成 10 分钟四核受控负载；最高 76°C，cooling state 实际升至 7，见
   `out/debian-system-device-test/thermal-20260905-052207/`。
+- [x] system/data 候选完成 20 分钟综合监控，2427 个 RNDIS ping 零失败，最高 58°C，见
+  `out/debian-system-device-test/stability-no-cellular-20260906-204440/`。
+- [x] system/data 候选完成 10 分钟四核受控负载；最高 74°C、cooling state 7、管理链路零丢包，
+  见 `out/debian-system-device-test/thermal-20260906-212305/`。
+- [x] `m8-storage-rc2` 完成端到端持久安装和 5 次普通重启；每次约 64 秒自动返回，
+  boot 回读、USB 身份、`/data`、两个 remoteproc 和全部关键服务通过，见
+  `out/persistent-install-m8/20260907-022802/` 和
+  `out/debian-system-device-test/reboot-cycles-20260907-023413/`。
+- [x] `m8-storage-rc2` 完成 20 分钟综合监控；2384 个 RNDIS ping 零失败、最高 60°C、
+  LTE 保持注册、服务重启变化和 remoteproc 失败均为 0，见
+  `out/debian-system-device-test/stability-20260907-024309/`。
+- [x] `m8-storage-rc2` 完成 10 分钟四核受控负载；最高 76°C、cooling state 7、管理链路
+  零丢包，见 `out/debian-system-device-test/thermal-20260907-030608/`。
+- [x] `m8-storage-rc2` 完成 10 次 `adbd` 热重启；702 个 ping 样本零失败，USB PnP 身份不变，
+  见 `out/debian-system-device-test/adbd-restart-20260907-031838/`。
+- [x] `m8-storage-rc2` 完成 10 次 AP/managed 切换；BSSID 固定、扫描恢复、remoteproc 和 systemd
+  状态通过，见 `out/debian-system-device-test/wifi-ap-device-cycles-20260907-070919/`。
 - [ ] 发布后增强：长时间运行、多客户端、SIM 热插拔和故障注入。
+- [x] `m8-storage-rc2` 完成真实断电冷启动回归；USB 连续缺席超过 300 秒后重新供电，设备自主
+  返回 Debian，boot ID 改变且 USB/RNDIS 身份不变，见
+  `out/debian-system-device-test/cold-boot-20260907-035043/`。
 
 ## M8：可复现构建与发布
 
@@ -121,9 +156,12 @@
 - [x] 发布包命名固定为 `ufi210-debian-zu02-dw01-<版本>.zip`。
 - [x] 候选 ZIP 改为 system、boot、安装器和验收脚本，不包含旧启动方案。
 - [x] 最终固定 RNDIS+ACM/TCP ADB system 镜像完成两次独立构建逐字节一致性验证。
+- [x] system、data、boot 三张镜像完成两次独立构建逐字节一致性验证。
 - [x] 完成源码树、二进制树、许可证和 rootfs 私有数据审计；闭源固件与校准入口共 35 个，
   全部确认为指向设备只读分区的符号链接。
 - [x] 生成并解压复审 `m7-persistent-rc2` 四个发布归档。
+- [x] 为 `m8-storage-rc2` 生成四个确定性发布归档；安全解包、RootFS 隐私、项目源码、
+  437 个 Debian 对应源码文件和 93,129 个 Linux 源码文件复审全部通过。
 - [x] 增加发布归档安全解包复审、公开材料边界和禁用词自动审计。
 - [x] 配置 Git 作者身份、创建首个提交并添加 GitHub 远端。
 
@@ -131,6 +169,6 @@
 
 - 只支持已验证的 `zu02-dw01` target。
 - 标准 Debian `adbd` 不实现主机侧 `adb reboot` 服务；使用项目提供的 ADB shell 兼容命令。
-- 有效 SIM 的最终 LTE 数据/NAT 回归尚未完成。
+- LTE 数据、DNS 和 NAT 已完成回归；长期蜂窝持续流量耐久性不在首个候选声明范围内。
 - IPv6、短信、SIM 热插拔和多 Wi-Fi 客户端不在首个候选声明范围内。
 - 9008 恢复必须使用设备自己的备份。
