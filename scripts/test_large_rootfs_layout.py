@@ -98,6 +98,15 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         self.assertNotIn('"flash"', probe_test.lower())
         self.assertNotIn('"erase"', probe_test.lower())
 
+    def test_pre_dm_diagnostic_stops_after_usb_and_before_dm_setup(self) -> None:
+        init = INITRAMFS.read_text(encoding="utf-8")
+        usb = "start_recovery_network || rescue_shell"
+        diagnostic = "has_cmdline_flag 'ufi210.pre_dm_rescue=1'"
+        dm_path = "if uses_large_root; then"
+        self.assertLess(init.index(usb), init.index(diagnostic))
+        self.assertLess(init.index(diagnostic), init.index(dm_path))
+        self.assertIn("pre-dm diagnostic rescue requested", init)
+
     def test_reused_kernel_archive_is_re_rooted_for_current_release(self) -> None:
         package = PUBLIC_PACKAGE.read_text(encoding="utf-8")
         self.assertIn("reused_kernel_roots", package)

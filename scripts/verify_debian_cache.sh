@@ -663,6 +663,8 @@ grep -Fq 'USB Device Controller did not appear within 60 seconds' "$tmp_dir/init
     || die "纯 Debian initramfs 缺少 UDC 等待超时保护"
 grep -Fq '[ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ]' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未同时核对 RNDIS 与 ACM 恢复接口"
+grep -Fq "has_cmdline_flag 'ufi210.pre_dm_rescue=1'" "$tmp_dir/initramfs-root/init" \
+    || die "纯 Debian initramfs 缺少 dm 设置前的 USB 诊断入口"
 grep -Fq 'root=PARTLABEL=cache)' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未限制接受 cache 根分区"
 grep -Fq 'root=PARTLABEL=system)' "$tmp_dir/initramfs-root/init" \

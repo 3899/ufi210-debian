@@ -217,6 +217,10 @@ mkdir -p /sys/kernel/config /sysroot
 
 start_recovery_network || rescue_shell 'failed to start USB recovery gadget'
 
+if has_cmdline_flag 'ufi210.pre_dm_rescue=1'; then
+    rescue_shell 'pre-dm diagnostic rescue requested'
+fi
+
 if uses_large_root; then
     if has_cmdline_flag 'ufi210.dm_probe=1'; then
         create_large_root yes
