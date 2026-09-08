@@ -91,6 +91,13 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         self.assertIn("DM_READONLY=1", probe_test)
         self.assertIn("DM_SECTORS=6807111", probe_test)
         self.assertIn("rootfs_mount=none", probe_test)
+        self.assertIn("PreDmStepwise", probe_test)
+        self.assertIn("UFI210_PRE_DM_OK", probe_test)
+        self.assertIn("acm-pre-dm.txt", probe_test)
+        self.assertIn("acm-dm-error.txt", probe_test)
+        self.assertIn(
+            'dmsetup create --readonly --noudevsync ufi210-root', probe_test
+        )
         self.assertNotRegex(
             probe_test,
             r'(?i)\$Fastboot\s+@\([^\n]*(?:"flash"|"erase")',

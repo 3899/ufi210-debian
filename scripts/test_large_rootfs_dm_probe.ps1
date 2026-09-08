@@ -5,6 +5,7 @@ param(
     [ValidateRange(10, 120)] [int]$CommandTimeoutSeconds = 45,
     [string]$ProbeBoot = "",
     [string]$OutputRoot = "",
+    [switch]$PreDmStepwise,
     [switch]$ReturnToCurrentOs
 )
 
@@ -207,6 +208,35 @@ try {
     $EnteredProbe = $true
     Write-Utf8File (Join-Path $OutputDir "fastboot-boot.txt") ($boot.Text + "`r`n")
     $port = Wait-AcmPort $AcmTimeoutSeconds
+    if ($PreDmStepwise) {
+        $preDmCommand = @'
+fail=0
+grep -Fq 'ufi210.pre_dm_rescue=1' /proc/cmdline || fail=1
+test "$(readlink /proc/1/exe)" = /bin/busybox || fail=1
+test "$(cat /sys/kernel/config/usb_gadget/g1/UDC)" = ci_hdrc.0 || fail=1
+test -e /sys/class/net/usb0 || fail=1
+test -c /dev/ttyGS0 || fail=1
+dmsetup info ufi210-root >/dev/null 2>&1 && fail=1
+test "$(cat /sys/class/block/mmcblk0p21/start)" = 461920 || fail=1
+test "$(cat /sys/class/block/mmcblk0p21/size)" = 2516584 || fail=1
+test "$(cat /sys/class/block/mmcblk0p23/start)" = 3044040 || fail=1
+test "$(cat /sys/class/block/mmcblk0p23/size)" = 524288 || fail=1
+test "$(cat /sys/class/block/mmcblk0p29/start)" = 3803136 || fail=1
+test "$(cat /sys/class/block/mmcblk0p29/size)" = 3766239 || fail=1
+printf 'UDC='; cat /sys/kernel/config/usb_gadget/g1/UDC
+printf 'DM_TARGETS_BEGIN\n'; dmsetup targets; printf 'DM_TARGETS_END\n'
+printf 'DM_VERSION_BEGIN\n'; dmsetup version; printf 'DM_VERSION_END\n'
+if test "$fail" -eq 0; then echo UFI210_PRE_DM_OK; true; else echo UFI210_PRE_DM_FAILED; false; fi
+'@
+        $preDm = Invoke-AcmCommand $port $preDmCommand $CommandTimeoutSeconds
+        Write-Utf8File (Join-Path $OutputDir "acm-pre-dm.txt") $preDm.Text
+        if ($preDm.Text -notmatch '(?m)^UFI210_PRE_DM_OK\r?$' -or
+            $preDm.Text -notmatch '(?m)^UDC=ci_hdrc\.0\r?$' -or
+            $preDm.Text -notmatch '(?m)^linear\s+' -or
+            $preDm.Text -notmatch "(?m)^$([regex]::Escape($preDm.Marker))_RC=0\r?$") {
+            throw "dm 设置前的 initramfs 基线不匹配：`r`n$($preDm.Text)"
+        }
+    }
     $command = @'
 fail=0
 grep -Fq 'ufi210.dm_probe=1' /proc/cmdline || fail=1
@@ -234,7 +264,30 @@ printf 'DM_READONLY='; blockdev --getro /dev/mapper/ufi210-root
 printf 'DM_SECTORS='; blockdev --getsz /dev/mapper/ufi210-root
 if test "$fail" -eq 0; then echo UFI210_DM_PROBE_OK; true; else echo UFI210_DM_PROBE_FAILED; false; fi
 '@
-    $probe = Invoke-AcmCommand $port $command $CommandTimeoutSeconds
+    if ($PreDmStepwise) {
+        $command = $command.Replace(
+            "grep -Fq 'ufi210.dm_probe=1' /proc/cmdline || fail=1",
+            "grep -Fq 'ufi210.pre_dm_rescue=1' /proc/cmdline || fail=1"
+        )
+        $createCommand = @'
+system_dev=/dev/mmcblk0p21
+cache_dev=/dev/mmcblk0p23
+userdata_dev=/dev/mmcblk0p29
+table="0 2516584 linear $system_dev 0
+2516584 524288 linear $cache_dev 0
+3040872 3766239 linear $userdata_dev 0"
+mkdir -p /dev/mapper /run/lock
+dmsetup create --readonly --noudevsync ufi210-root --table "$table"
+dmsetup mknodes ufi210-root
+'@
+        $command = $createCommand + "`n" + $command
+    }
+    try {
+        $probe = Invoke-AcmCommand $port $command $CommandTimeoutSeconds
+    } catch {
+        Write-Utf8File (Join-Path $OutputDir "acm-dm-error.txt") $_.Exception.Message
+        throw
+    }
     Write-Utf8File (Join-Path $OutputDir "acm-probe.txt") $probe.Text
     if ($probe.Text -notmatch '(?m)^UFI210_DM_PROBE_OK\r?$' -or
         $probe.Text -notmatch '(?m)^DM_READONLY=1\r?$' -or
@@ -257,6 +310,7 @@ if test "$fail" -eq 0; then echo UFI210_DM_PROBE_OK; true; else echo UFI210_DM_P
         "fastboot_partition_operations=none", "device_writes=none",
         "dm_name=ufi210-root", "dm_readonly=true", "dm_sectors=6807111",
         "dm_segments=system,cache,userdata", "rootfs_mount=none",
+        "probe_mode=$(if ($PreDmStepwise) { 'pre-dm-stepwise' } else { 'automatic' })",
         "probe_boot_sha256=$probeHash", "returned_to_fastboot=$((-not $ReturnToCurrentOs).ToString().ToLowerInvariant())",
         "completed=$(Get-Date -Format o)", "logs=$OutputDir"
     ) -join "`r`n"
