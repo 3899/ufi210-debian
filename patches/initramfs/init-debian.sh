@@ -12,11 +12,7 @@ start_recovery_network() {
     udc=
     attempt=1
     while [ "$attempt" -le 60 ]; do
-        for candidate in /sys/class/udc/*; do
-            [ -e "$candidate" ] || continue
-            udc="${candidate##*/}"
-            break
-        done
+        udc="$(ls /sys/class/udc 2>/dev/null | head -n 1 || true)"
         [ -z "$udc" ] || break
         sleep 1
         attempt=$((attempt + 1))

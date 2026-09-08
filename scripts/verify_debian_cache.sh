@@ -657,7 +657,7 @@ grep -Fq 'recovery shell is available on USB ACM /dev/ttyGS0' "$tmp_dir/initramf
     || die "纯 Debian initramfs 未提供 USB ACM 救援说明"
 grep -Fq '/system/bin/reboot bootloader' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未提供进入 fastboot 的救援命令"
-grep -Fq 'for candidate in /sys/class/udc/*; do' "$tmp_dir/initramfs-root/init" \
+grep -Fq 'ls /sys/class/udc 2>/dev/null | head -n 1' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未等待延迟探测的 USB Device Controller"
 grep -Fq 'USB Device Controller did not appear within 60 seconds' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 缺少 UDC 等待超时保护"

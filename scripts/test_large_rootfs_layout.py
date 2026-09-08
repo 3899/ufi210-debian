@@ -72,7 +72,8 @@ class LargeRootfsLayoutTests(unittest.TestCase):
 
     def test_initramfs_waits_for_both_usb_recovery_functions(self) -> None:
         init = INITRAMFS.read_text(encoding="utf-8")
-        self.assertIn('for candidate in /sys/class/udc/*; do', init)
+        self.assertIn('ls /sys/class/udc 2>/dev/null | head -n 1', init)
+        self.assertNotIn('for candidate in /sys/class/udc/*; do', init)
         self.assertIn("[ \"$attempt\" -le 60 ]", init)
         self.assertIn("USB Device Controller did not appear within 60 seconds", init)
         self.assertIn('[ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ]', init)
