@@ -80,7 +80,8 @@ programmer 能握手不等于已验证可写；首次受控写入演练完成前
 - Sahara 明确完成，firehose 只执行 `getstorageinfo`。
 - eMMC 为 7,569,408 个 512 字节扇区，共 3,875,536,896 字节。
 - 日志中没有 `sendxml`、program、erase 或 firmware write。
-- 探测后由 firehose reset 返回已安装的 Debian。
+- 探测后由 firehose reset 返回已安装的 Debian；脚本只接受主机名、SoC ID 和根设备均符合
+  已验证 m8 或大根卷布局的系统。
 
 不同文件名的 programmer 不能仅凭 SoC 名称判定兼容。没有当前设备的成功握手日志时，不得直接
 执行 rawprogram。

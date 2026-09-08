@@ -117,7 +117,6 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         runtime_scripts = (
             "collect_debian_usb_postmortem.ps1",
             "monitor_debian_stability.ps1",
-            "probe_9008_programmer.ps1",
             "test_debian_cold_boot.ps1",
             "test_debian_fastboot_reboot.ps1",
             "test_debian_reboot_cycles.ps1",

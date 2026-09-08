@@ -28,6 +28,14 @@ class ProgrammerProbeSafetyTests(unittest.TestCase):
         self.assertIn("ExpectedSectorBytes = 512L", text)
         self.assertIn("ExpectedPhysicalPartitions = 3", text)
 
+    def test_probe_accepts_only_verified_m8_or_large_rootfs_after_reset(self) -> None:
+        text = SCRIPT.read_text(encoding="utf-8")
+        self.assertIn('test "$(hostname)" = ufi210', text)
+        self.assertIn('test "$(cat /sys/devices/soc0/soc_id)" = 245', text)
+        self.assertIn(
+            '/dev/mmcblk0p21|/dev/mapper/ufi210-root) echo DEBIAN_OK', text
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
