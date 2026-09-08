@@ -142,6 +142,11 @@ class LargeRootfsLayoutTests(unittest.TestCase):
             with self.subTest(script=path.name):
                 self.assertNotIn("out\\debian-system-device-test", text)
 
+    def test_windows_powershell_scripts_have_utf8_bom(self) -> None:
+        for path in SCRIPTS.glob("*.ps1"):
+            with self.subTest(script=path.name):
+                self.assertTrue(path.read_bytes().startswith(b"\xef\xbb\xbf"))
+
 
 if __name__ == "__main__":
     unittest.main()

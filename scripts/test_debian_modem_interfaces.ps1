@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [string]$AdbSerial = "192.168.68.1:5555",
     [ValidateRange(5, 120)]

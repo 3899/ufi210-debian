@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [ValidateRange(30, 300)] [int]$FastbootTimeoutSeconds = 90,
     [ValidateRange(30, 300)] [int]$AcmTimeoutSeconds = 120,
@@ -130,7 +130,8 @@ function Invoke-AcmCommand {
     param([string]$PortName, [string]$Command, [int]$TimeoutSeconds)
     $marker = "UFI210_" + [Guid]::NewGuid().ToString("N")
     $endMarker = "${marker}_END"
-    $wire = "echo ${marker}_BEGIN; ${Command}; rc=`$?; echo ${marker}_RC=`$rc; echo $endMarker"
+    $wire = 'echo {0}_BEGIN; {1}; rc=$?; echo {0}_RC=$rc; echo {2}' -f `
+        $marker, $Command, $endMarker
     $serial = [IO.Ports.SerialPort]::new($PortName, 115200, [IO.Ports.Parity]::None, 8, [IO.Ports.StopBits]::One)
     $serial.ReadTimeout = 250
     $serial.WriteTimeout = 1000

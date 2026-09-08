@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$PortName = "COM5",
     [Parameter(Mandatory = $true)]
     [string]$Command,
