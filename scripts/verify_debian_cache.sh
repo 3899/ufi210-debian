@@ -660,13 +660,22 @@ grep -Fq '/system/bin/reboot bootloader' "$tmp_dir/initramfs-root/init" \
 grep -Fq 'if /sbin/zu02-usb-gadget setup && /sbin/zu02-usb-gadget activate; then' \
     "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未重试完整 USB gadget 建立流程"
-grep -Fq 'USB recovery gadget did not start within 60 attempts' "$tmp_dir/initramfs-root/init" \
-    || die "纯 Debian initramfs 缺少 USB gadget 重试上限"
+grep -Fq 'start_recovery_network 1 || log' "$tmp_dir/initramfs-root/init" \
+    || die "纯 Debian initramfs 会因早期 USB 不可用而阻断正常启动"
+grep -Fq 'start_recovery_network 60 || log' "$tmp_dir/initramfs-root/init" \
+    || die "纯 Debian initramfs 救援模式未重试 USB gadget"
 grep -Fq 'USB recovery RNDIS did not appear' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未核对 RNDIS 管理接口"
 grep -Fq 'USB recovery ACM is unavailable; continuing with RNDIS management' \
     "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 会因 ACM 缺失阻断正常启动"
+grep -Fq 'finish_readonly_probe()' "$tmp_dir/initramfs-root/init" \
+    || die "纯 Debian initramfs 缺少只读探针成功返回 fastboot 的路径"
+grep -Fq "finish_readonly_probe 'read-only ufi210-root probe completed successfully'" \
+    "$tmp_dir/initramfs-root/init" \
+    || die "大根卷只读探针完成后不会自动返回 fastboot"
+grep -Fq 'read-only probe failed, returning to persistent boot' "$tmp_dir/initramfs-root/init" \
+    || die "大根卷只读探针失败时不会返回持久系统"
 grep -Fq "has_cmdline_flag 'ufi210.pre_dm_rescue=1'" "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 缺少 dm 设置前的 USB 诊断入口"
 grep -Fq 'root=PARTLABEL=cache)' "$tmp_dir/initramfs-root/init" \
@@ -687,6 +696,9 @@ if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
         "dmsetup create --readonly --noudevsync ufi210-root" \
         "dmsetup create --noudevsync ufi210-root" \
         "dmsetup mknodes ufi210-root" \
+        'actual_table="$(dmsetup table ufi210-root' \
+        '[ "$actual_table" = "$expected_table" ]' \
+        "! mountpoint -q /sysroot" \
         "ufi210.dm_probe=1"; do
         grep -Fq "$initramfs_line" "$tmp_dir/initramfs-root/init" \
             || die "大根卷 initramfs 缺少：$initramfs_line"

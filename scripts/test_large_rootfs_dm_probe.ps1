@@ -67,6 +67,26 @@ function Wait-FastbootDevice {
     throw "fastboot 未在 $TimeoutSeconds 秒内出现"
 }
 
+function Wait-FastbootReturn {
+    param([string]$Serial, [int]$TimeoutSeconds)
+    $departureDeadline = (Get-Date).AddSeconds(15)
+    $departed = $false
+    do {
+        if ((Get-FastbootDevices) -notcontains $Serial) {
+            $departed = $true
+            break
+        }
+        Start-Sleep -Milliseconds 100
+    } while ((Get-Date) -lt $departureDeadline)
+    if (-not $departed) { throw "RAM 探针启动后 fastboot 未断开" }
+
+    $returnedSerial = Wait-FastbootDevice $TimeoutSeconds
+    if ($returnedSerial -ne $Serial) {
+        throw "RAM 探针返回了不同的 fastboot 设备"
+    }
+    $returnedSerial
+}
+
 function Get-FastbootVariable {
     param([string]$Serial, [string]$Name)
     $result = Invoke-Native $Fastboot @("-s", $Serial, "getvar", $Name) -AllowFailure
@@ -207,9 +227,39 @@ try {
     $boot = Invoke-Native $Fastboot @("-s", $fastbootSerial, "boot", $ProbeBoot)
     $EnteredProbe = $true
     Write-Utf8File (Join-Path $OutputDir "fastboot-boot.txt") ($boot.Text + "`r`n")
+    if (-not $PreDmStepwise) {
+        $fastbootSerial = Wait-FastbootReturn $fastbootSerial $FastbootTimeoutSeconds
+        $ReturnedToFastboot = $true
+        $returnedProduct = Get-FastbootVariable $fastbootSerial "product"
+        if ($returnedProduct -notmatch '(?i)^MSM8909$') {
+            throw "探测后返回的 fastboot 目标不匹配"
+        }
+        Write-Utf8File (Join-Path $OutputDir "automatic-return.txt") ((@(
+            "fastboot_serial=$fastbootSerial",
+            "product=$returnedProduct",
+            "probe_contract=geometry-dm-node-sector-count-readonly-then-restart2"
+        ) -join "`r`n") + "`r`n")
+        if ($ReturnToCurrentOs) {
+            Invoke-Native $Fastboot @("-s", $fastbootSerial, "reboot") | Out-Null
+            $ReturnedToFastboot = $false
+        }
+        $summary = @(
+            "UFI210 large-rootfs 只读 dm-linear RAM 探测通过",
+            "fastboot_partition_operations=none", "device_writes=none",
+            "dm_name=ufi210-root", "dm_readonly=true", "dm_sectors=6807111",
+            "dm_segments=system,cache,userdata", "rootfs_mount=none",
+            "probe_mode=automatic-fastboot-return",
+            "probe_boot_sha256=$probeHash",
+            "returned_to_fastboot=$((-not $ReturnToCurrentOs).ToString().ToLowerInvariant())",
+            "completed=$(Get-Date -Format o)", "logs=$OutputDir"
+        ) -join "`r`n"
+        Write-Utf8File (Join-Path $OutputDir "SUMMARY.txt") ($summary + "`r`n")
+        Write-Host $summary
+        return
+    }
+
     $port = Wait-AcmPort $AcmTimeoutSeconds
-    if ($PreDmStepwise) {
-        $preDmCommand = @'
+    $preDmCommand = @'
 fail=0
 grep -Fq 'ufi210.pre_dm_rescue=1' /proc/cmdline || fail=1
 test "$(readlink /proc/1/exe)" = /bin/busybox || fail=1
@@ -228,14 +278,13 @@ printf 'DM_TARGETS_BEGIN\n'; dmsetup targets; printf 'DM_TARGETS_END\n'
 printf 'DM_VERSION_BEGIN\n'; dmsetup version; printf 'DM_VERSION_END\n'
 if test "$fail" -eq 0; then echo UFI210_PRE_DM_OK; true; else echo UFI210_PRE_DM_FAILED; false; fi
 '@
-        $preDm = Invoke-AcmCommand $port $preDmCommand $CommandTimeoutSeconds
-        Write-Utf8File (Join-Path $OutputDir "acm-pre-dm.txt") $preDm.Text
-        if ($preDm.Text -notmatch '(?m)^UFI210_PRE_DM_OK\r?$' -or
-            $preDm.Text -notmatch '(?m)^UDC=ci_hdrc\.0\r?$' -or
-            $preDm.Text -notmatch '(?m)^linear\s+' -or
-            $preDm.Text -notmatch "(?m)^$([regex]::Escape($preDm.Marker))_RC=0\r?$") {
-            throw "dm 设置前的 initramfs 基线不匹配：`r`n$($preDm.Text)"
-        }
+    $preDm = Invoke-AcmCommand $port $preDmCommand $CommandTimeoutSeconds
+    Write-Utf8File (Join-Path $OutputDir "acm-pre-dm.txt") $preDm.Text
+    if ($preDm.Text -notmatch '(?m)^UFI210_PRE_DM_OK\r?$' -or
+        $preDm.Text -notmatch '(?m)^UDC=ci_hdrc\.0\r?$' -or
+        $preDm.Text -notmatch '(?m)^linear\s+' -or
+        $preDm.Text -notmatch "(?m)^$([regex]::Escape($preDm.Marker))_RC=0\r?$") {
+        throw "dm 设置前的 initramfs 基线不匹配：`r`n$($preDm.Text)"
     }
     $command = @'
 fail=0
@@ -264,12 +313,11 @@ printf 'DM_READONLY='; blockdev --getro /dev/mapper/ufi210-root
 printf 'DM_SECTORS='; blockdev --getsz /dev/mapper/ufi210-root
 if test "$fail" -eq 0; then echo UFI210_DM_PROBE_OK; true; else echo UFI210_DM_PROBE_FAILED; false; fi
 '@
-    if ($PreDmStepwise) {
-        $command = $command.Replace(
-            "grep -Fq 'ufi210.dm_probe=1' /proc/cmdline || fail=1",
-            "grep -Fq 'ufi210.pre_dm_rescue=1' /proc/cmdline || fail=1"
-        )
-        $createCommand = @'
+    $command = $command.Replace(
+        "grep -Fq 'ufi210.dm_probe=1' /proc/cmdline || fail=1",
+        "grep -Fq 'ufi210.pre_dm_rescue=1' /proc/cmdline || fail=1"
+    )
+    $createCommand = @'
 system_dev=/dev/mmcblk0p21
 cache_dev=/dev/mmcblk0p23
 userdata_dev=/dev/mmcblk0p29
@@ -280,8 +328,7 @@ mkdir -p /dev/mapper /run/lock
 dmsetup create --readonly --noudevsync ufi210-root --table "$table"
 dmsetup mknodes ufi210-root
 '@
-        $command = $createCommand + "`n" + $command
-    }
+    $command = $createCommand + "`n" + $command
     try {
         $probe = Invoke-AcmCommand $port $command $CommandTimeoutSeconds
     } catch {
@@ -310,7 +357,7 @@ dmsetup mknodes ufi210-root
         "fastboot_partition_operations=none", "device_writes=none",
         "dm_name=ufi210-root", "dm_readonly=true", "dm_sectors=6807111",
         "dm_segments=system,cache,userdata", "rootfs_mount=none",
-        "probe_mode=$(if ($PreDmStepwise) { 'pre-dm-stepwise' } else { 'automatic' })",
+        "probe_mode=pre-dm-stepwise",
         "probe_boot_sha256=$probeHash", "returned_to_fastboot=$((-not $ReturnToCurrentOs).ToString().ToLowerInvariant())",
         "completed=$(Get-Date -Format o)", "logs=$OutputDir"
     ) -join "`r`n"

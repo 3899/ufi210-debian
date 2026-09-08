@@ -66,9 +66,14 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         init = INITRAMFS.read_text(encoding="utf-8")
         self.assertIn('if [ "$actual_sectors" != "$expected_sectors" ]; then', init)
         self.assertIn('if [ "$actual_start" != "$expected_start" ]; then', init)
-        self.assertIn("rescue_shell 'system partition is missing, duplicated, or has the wrong size'", init)
-        self.assertIn("rescue_shell 'cache partition is missing, duplicated, or has the wrong size'", init)
-        self.assertIn("rescue_shell 'userdata partition is missing, duplicated, or has the wrong size'", init)
+        for partition in ("system", "cache", "userdata"):
+            self.assertIn(
+                f"large_root_failure \"$readonly_flag\" '{partition} partition "
+                "is missing, duplicated, or has the wrong size'",
+                init,
+            )
+        self.assertIn('if [ "$readonly_flag" = yes ]; then', init)
+        self.assertIn('rescue_shell "$reason"', init)
 
     def test_initramfs_retries_the_complete_usb_gadget_setup(self) -> None:
         init = INITRAMFS.read_text(encoding="utf-8")
@@ -77,10 +82,13 @@ class LargeRootfsLayoutTests(unittest.TestCase):
             "/sbin/zu02-usb-gadget activate; then",
             init,
         )
+        self.assertIn('max_attempts="${1:-1}"', init)
+        self.assertIn("start_recovery_network 1 || log", init)
+        self.assertIn("start_recovery_network 60 || log", init)
         self.assertNotIn('udc="$(ls /sys/class/udc', init)
         self.assertNotIn('for candidate in /sys/class/udc/*; do', init)
-        self.assertIn("[ \"$attempt\" -le 60 ]", init)
-        self.assertIn("USB recovery gadget did not start within 60 attempts", init)
+        self.assertIn('[ "$attempt" -le "$max_attempts" ]', init)
+        self.assertIn("USB recovery gadget deferred to Debian userspace", init)
         self.assertIn("USB recovery RNDIS did not appear", init)
         self.assertIn("USB recovery ACM is unavailable; continuing", init)
         self.assertNotIn(
@@ -91,7 +99,22 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         init = INITRAMFS.read_text(encoding="utf-8")
         probe = PROBE_BUILD.read_text(encoding="utf-8")
         self.assertIn("dmsetup create --readonly", init)
+        self.assertIn('actual_table="$(dmsetup table ufi210-root', init)
+        self.assertIn('[ "$actual_table" = "$expected_table" ]', init)
+        self.assertIn("! mountpoint -q /sysroot", init)
         self.assertIn("read-only ufi210-root probe completed successfully", init)
+        self.assertIn(
+            "finish_readonly_probe "
+            "'read-only ufi210-root probe completed successfully'",
+            init,
+        )
+        self.assertIn("/system/bin/reboot bootloader", init)
+        self.assertIn("read-only probe failed, returning to persistent boot", init)
+        self.assertIn(
+            '/system/bin/reboot \\\n'
+            '            || rescue_shell "$reason; automatic persistent reboot failed"',
+            init,
+        )
         self.assertIn("ufi210.dm_probe=1", probe)
         self.assertIn("只用于 fastboot boot", probe)
         self.assertNotIn("fastboot flash", probe.lower())
@@ -101,6 +124,11 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         self.assertIn("DM_SECTORS=6807111", probe_test)
         self.assertIn("rootfs_mount=none", probe_test)
         self.assertIn("PreDmStepwise", probe_test)
+        self.assertIn("Wait-FastbootReturn", probe_test)
+        self.assertIn("probe_mode=automatic-fastboot-return", probe_test)
+        self.assertIn(
+            "geometry-dm-node-sector-count-readonly-then-restart2", probe_test
+        )
         self.assertIn("UFI210_PRE_DM_OK", probe_test)
         self.assertIn("acm-pre-dm.txt", probe_test)
         self.assertIn("acm-dm-error.txt", probe_test)
@@ -116,7 +144,7 @@ class LargeRootfsLayoutTests(unittest.TestCase):
 
     def test_pre_dm_diagnostic_stops_after_usb_and_before_dm_setup(self) -> None:
         init = INITRAMFS.read_text(encoding="utf-8")
-        usb = "start_recovery_network || rescue_shell"
+        usb = "start_recovery_network 1 || log"
         diagnostic = "has_cmdline_flag 'ufi210.pre_dm_rescue=1'"
         dm_path = "if uses_large_root; then"
         self.assertLess(init.index(usb), init.index(diagnostic))

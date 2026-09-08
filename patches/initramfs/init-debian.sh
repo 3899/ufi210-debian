@@ -9,19 +9,20 @@ log() {
 }
 
 start_recovery_network() {
+    max_attempts="${1:-1}"
     gadget_started=no
     attempt=1
-    while [ "$attempt" -le 60 ]; do
+    while [ "$attempt" -le "$max_attempts" ]; do
         if /sbin/zu02-usb-gadget setup && /sbin/zu02-usb-gadget activate; then
             gadget_started=yes
             break
         fi
-        log "USB recovery gadget is not ready (attempt $attempt/60)"
+        log "USB recovery gadget is not ready (attempt $attempt/$max_attempts)"
         sleep 1
         attempt=$((attempt + 1))
     done
     if [ "$gadget_started" != yes ]; then
-        log 'USB recovery gadget did not start within 60 attempts'
+        log "USB recovery gadget did not start within $max_attempts attempts"
         return 1
     fi
 
@@ -46,7 +47,11 @@ start_recovery_network() {
 }
 
 rescue_shell() {
-    log "$*; recovery shell is available on USB ACM /dev/ttyGS0"
+    reason="$*"
+    if [ ! -e /sys/class/net/usb0 ]; then
+        start_recovery_network 60 || log 'USB recovery gadget remains unavailable'
+    fi
+    log "$reason; recovery shell is available on USB ACM /dev/ttyGS0"
     attempt=1
     while [ "$attempt" -le 15 ]; do
         [ -c /dev/ttyGS0 ] && break
@@ -63,6 +68,27 @@ rescue_shell() {
     fi
     setsid sh -i </dev/console >/dev/console 2>&1 &
     while :; do sleep 60; done
+}
+
+finish_readonly_probe() {
+    reason="$*"
+    log "$reason; returning to fastboot"
+    /system/bin/reboot bootloader \
+        || rescue_shell "$reason; automatic fastboot reboot failed"
+    rescue_shell "$reason; automatic fastboot reboot returned unexpectedly"
+}
+
+large_root_failure() {
+    readonly_flag="$1"
+    shift
+    reason="$*"
+    if [ "$readonly_flag" = yes ]; then
+        log "$reason; read-only probe failed, returning to persistent boot"
+        /system/bin/reboot \
+            || rescue_shell "$reason; automatic persistent reboot failed"
+        rescue_shell "$reason; automatic persistent reboot returned unexpectedly"
+    fi
+    rescue_shell "$reason"
 }
 
 get_root_partlabel() {
@@ -170,39 +196,50 @@ create_large_root() {
     userdata_lba=3803136
 
     if ! system_dev="$(wait_for_exact_partition system "$system_sectors" "$system_start")"; then
-        rescue_shell 'system partition is missing, duplicated, or has the wrong size'
+        large_root_failure "$readonly_flag" 'system partition is missing, duplicated, or has the wrong size'
     fi
     if ! cache_dev="$(wait_for_exact_partition cache "$cache_sectors" "$cache_start")"; then
-        rescue_shell 'cache partition is missing, duplicated, or has the wrong size'
+        large_root_failure "$readonly_flag" 'cache partition is missing, duplicated, or has the wrong size'
     fi
     if ! userdata_dev="$(wait_for_exact_partition userdata "$userdata_sectors" "$userdata_lba")"; then
-        rescue_shell 'userdata partition is missing, duplicated, or has the wrong size'
+        large_root_failure "$readonly_flag" 'userdata partition is missing, duplicated, or has the wrong size'
     fi
 
     mkdir -p /dev/mapper /run/lock
     if dmsetup info ufi210-root >/dev/null 2>&1; then
-        rescue_shell 'ufi210-root already exists before setup'
+        large_root_failure "$readonly_flag" 'ufi210-root already exists before setup'
     fi
     table="0 $system_sectors linear $system_dev 0
 $system_sectors $cache_sectors linear $cache_dev 0
 $userdata_start $userdata_sectors linear $userdata_dev 0"
     if [ "$readonly_flag" = yes ]; then
         dmsetup create --readonly --noudevsync ufi210-root --table "$table" \
-            || rescue_shell 'failed to create read-only ufi210-root'
+            || large_root_failure "$readonly_flag" 'failed to create read-only ufi210-root'
     else
         dmsetup create --noudevsync ufi210-root --table "$table" \
-            || rescue_shell 'failed to create ufi210-root'
+            || large_root_failure "$readonly_flag" 'failed to create ufi210-root'
     fi
     dmsetup mknodes ufi210-root \
-        || rescue_shell 'failed to create ufi210-root device node'
+        || large_root_failure "$readonly_flag" 'failed to create ufi210-root device node'
     [ -b /dev/mapper/ufi210-root ] \
-        || rescue_shell 'ufi210-root device node is missing'
+        || large_root_failure "$readonly_flag" 'ufi210-root device node is missing'
     actual_total="$(blockdev --getsz /dev/mapper/ufi210-root 2>/dev/null || true)"
     [ "$actual_total" = "$total_sectors" ] \
-        || rescue_shell "ufi210-root has $actual_total sectors, expected $total_sectors"
+        || large_root_failure "$readonly_flag" "ufi210-root has $actual_total sectors, expected $total_sectors"
+    system_devno="$(cat "/sys/class/block/${system_dev##*/}/dev")"
+    cache_devno="$(cat "/sys/class/block/${cache_dev##*/}/dev")"
+    userdata_devno="$(cat "/sys/class/block/${userdata_dev##*/}/dev")"
+    expected_table="0 $system_sectors linear $system_devno 0
+$system_sectors $cache_sectors linear $cache_devno 0
+$userdata_start $userdata_sectors linear $userdata_devno 0"
+    actual_table="$(dmsetup table ufi210-root 2>/dev/null || true)"
+    [ "$actual_table" = "$expected_table" ] \
+        || large_root_failure "$readonly_flag" 'ufi210-root table does not match the requested segments'
     if [ "$readonly_flag" = yes ]; then
         [ "$(blockdev --getro /dev/mapper/ufi210-root)" = 1 ] \
-            || rescue_shell 'ufi210-root probe is unexpectedly writable'
+            || large_root_failure "$readonly_flag" 'ufi210-root probe is unexpectedly writable'
+        ! mountpoint -q /sysroot \
+            || large_root_failure "$readonly_flag" 'ufi210-root probe mounted a root filesystem unexpectedly'
     fi
     log "created ufi210-root: $total_sectors sectors ($system_dev + $cache_dev + $userdata_dev)"
 }
@@ -213,7 +250,7 @@ mount -t devtmpfs devtmpfs /dev
 mount -t tmpfs -o mode=0755,nosuid,nodev tmpfs /run
 mkdir -p /sys/kernel/config /sysroot
 
-start_recovery_network || rescue_shell 'failed to start USB recovery gadget'
+start_recovery_network 1 || log 'USB recovery gadget deferred to Debian userspace'
 
 if has_cmdline_flag 'ufi210.pre_dm_rescue=1'; then
     rescue_shell 'pre-dm diagnostic rescue requested'
@@ -222,7 +259,7 @@ fi
 if uses_large_root; then
     if has_cmdline_flag 'ufi210.dm_probe=1'; then
         create_large_root yes
-        rescue_shell 'read-only ufi210-root probe completed successfully'
+        finish_readonly_probe 'read-only ufi210-root probe completed successfully'
     fi
     create_large_root no
     rootdev=/dev/mapper/ufi210-root

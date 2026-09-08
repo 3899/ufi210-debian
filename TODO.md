@@ -97,6 +97,11 @@ Debian 固件。最终用户通过正常 `apt install` 写入同一个根文件�
   仅 init 的 UDC 预等待/ACM 判定和无关的 regulatory 签名不同，证明第一版 USB 修复仍有回归。
 - [x] 改为对完整的 gadget setup/activate 流程最多重试 60 次，每次重新探测 UDC；RNDIS 仍是
   正常启动的硬门槛，ACM 缺失只降低救援能力，不再阻断可正常挂载的 Debian 根。
+- [x] 复核旧成功诊断的 shell 控制流，确认当时早期 gadget 失败被函数隐式吞掉，USB 实际由
+  systemd 在切根后建立；因此修正契约为正常启动只尝试一次早期 USB 并允许延后到 Debian
+  userspace，救援模式才执行 60 次有限重试。只读 dm 探针通过几何、映射节点、总扇区数和只读
+  属性检查后以 `RESTART2 bootloader` 返回 fastboot；任一失败则普通 reboot 返回持久 m8，主机可
+  唯一区分成功与失败。正式大根卷错误仍进入救援模式，避免持久启动产生自动重启循环。
 - [ ] 完成 A/B 控制和 pre-dm ACM 分步探测，区分 initramfs USB 回归与 device-mapper 路径故障。
 - [ ] 使用修复后的正式 `boot-debian-large-rootfs-dm-probe.img` 完成只读 dm-linear 真机探测；
   该步骤通过前继续禁止写入 system、cache、userdata 和 boot。
