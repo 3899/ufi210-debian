@@ -18,6 +18,10 @@ Debian 12 Bookworm `armhf` 无头基础环境，不包含桌面、触摸栈或 W
 3.25 GiB 的 `/dev/mapper/ufi210-root`。GPT、aboot、recovery、modem、modemst1/2、fsg 和
 persist 不会被安装器改写。普通重启和断电上电应直接进入 Debian，不会返回 Android。
 
+`/data` 不再是独立挂载点。根卷内仅保留 `/data/local/tmp`（1777）作为 Debian `adbd` 的
+兼容临时目录；该目录属于同一个大根文件系统，普通 APT、`/usr`、`/var`、`/opt` 和 `/home`
+均直接使用大根卷空间。
+
 ## 安装前准备
 
 1. 确认目标是 `ZU02_main_v1.1` / DW01 / MSM8909 / SoC ID 245。
@@ -76,6 +80,22 @@ install.bat
 只有 boot 备份恰为 32 MiB、主备 GPT 均通过 CRC/几何校验时才能继续。
 `-ConfirmEraseCacheAndUserdata` 表示确认永久删除 cache 和 userdata 原内容，缺少该参数时
 安装器会在刷写前停止。
+
+## 刷写后恢复验收
+
+低速 eMMC 的首次启动可能需要数分钟。安装器默认等待 600 秒；如果四个分区已经写入、Debian
+ADB 已在线，但安装器因运行态等待超时而退出，不要重复刷写。使用失败记录目录中的 32 MiB
+boot 备份和 GPT 回读继续验收：
+
+```powershell
+.\scripts\install_debian_large_rootfs.ps1 \
+  -ResumePostInstallValidation \
+  -BootBackupPath '<安装记录目录>\boot-before-install.img' \
+  -RecoveryBackupDirectory '<安装记录目录>\device-recovery'
+```
+
+该模式重新核对发布镜像、boot 备份和主/备 GPT，只执行当前系统运行态检查及一次普通 warm
+reboot，不执行任何 Fastboot `erase` 或 `flash` 操作。
 
 ## 首次连接
 

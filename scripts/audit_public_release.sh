@@ -160,6 +160,9 @@ audit_binary_tree() {
         'rootfs_uuid=89090000-0000-4000-8000-000000000031' \
         'rootfs_image_bytes=3485237248' \
         'rootfs_segments=complete-prebuilt-filesystem' \
+        'data_mount=none' \
+        'adbd_shell_tmpdir=/data/local/tmp' \
+        'adbd_shell_tmpdir_storage=rootfs' \
         'storage_layout=dm-linear-system-cache-userdata' \
         'dm_name=ufi210-root' \
         'dm_total_sectors=6807111' \

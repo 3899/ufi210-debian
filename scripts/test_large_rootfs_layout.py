@@ -10,6 +10,8 @@ VERIFY = Path(__file__).with_name("verify_debian_cache.sh")
 PROBE_BUILD = Path(__file__).with_name("build_large_rootfs_probe_boot.sh")
 PROBE_TEST = Path(__file__).with_name("test_large_rootfs_dm_probe.ps1")
 PUBLIC_PACKAGE = Path(__file__).with_name("package_public_release_candidate.sh")
+PACKAGE_SCRIPT = Path(__file__).with_name("package_release_candidate.sh")
+AUDIT_SCRIPT = Path(__file__).with_name("audit_public_release.sh")
 RESTORE_SCRIPT = Path(__file__).with_name("restore_android_fastboot.ps1")
 SCRIPTS = Path(__file__).parent
 
@@ -158,6 +160,22 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         self.assertIn('create_archive "$tmp_dir" "$kernel_source_name"', package)
         self.assertIn("reused_kernel_root/UFI210-BUILD-METADATA.txt", package)
 
+    def test_binary_manifest_preserves_adbd_tmpdir_storage_contract(self) -> None:
+        package = PACKAGE_SCRIPT.read_text(encoding="utf-8")
+        audit = AUDIT_SCRIPT.read_text(encoding="utf-8")
+        for value in (
+            "data_mount=$(manifest_value data_mount)",
+            "adbd_shell_tmpdir=$(manifest_value adbd_shell_tmpdir)",
+            "adbd_shell_tmpdir_storage=$(manifest_value adbd_shell_tmpdir_storage)",
+        ):
+            self.assertIn(value, package)
+        for value in (
+            "'data_mount=none'",
+            "'adbd_shell_tmpdir=/data/local/tmp'",
+            "'adbd_shell_tmpdir_storage=rootfs'",
+        ):
+            self.assertIn(value, audit)
+
     def test_fastboot_android_restore_is_explicit_and_does_not_touch_gpt(self) -> None:
         restore = RESTORE_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("ConfirmRestoreAndroid", restore)
@@ -193,6 +211,14 @@ class LargeRootfsLayoutTests(unittest.TestCase):
             "DATA_MOUNTED=no",
             "DM_BYTES=3485240832",
             "DM_LINES=3",
+            "WWAN_IPV4_GLOBAL=",
+            "WWAN_IPV6_GLOBAL=",
+            "WWAN_IPV4_DEFAULT=",
+            "WWAN_IPV6_DEFAULT=",
+            "ACTIVE_GSM=",
+            '"cellular_global_addresses=0"',
+            '"cellular_default_routes=0"',
+            '"active_gsm_connections=0"',
         ):
             self.assertIn(value, monitor)
 

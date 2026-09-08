@@ -260,6 +260,10 @@ log "核对 manifest 与构建输入"
     || die "目标分区容量策略不匹配"
 [[ "$(manifest_value rootfs_auto_grow)" == "$ROOTFS_AUTO_GROW" ]] \
     || die "rootfs 自动扩容策略不匹配"
+[[ "$(manifest_value adbd_shell_tmpdir)" == "/data/local/tmp" ]] \
+    || die "ADB shell 临时目录策略不匹配"
+[[ "$(manifest_value adbd_shell_tmpdir_storage)" == "rootfs" ]] \
+    || die "ADB shell 临时目录存储策略不匹配"
 if [[ "$TARGET_PARTITION" == system ]]; then
     [[ "$(manifest_value data_partition)" == "userdata" ]] \
         || die "data 目标分区策略不匹配"
@@ -280,6 +284,7 @@ if [[ "$TARGET_PARTITION" == system ]]; then
         || die "userdata 擦除策略不匹配"
 fi
 if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    [[ "$(manifest_value data_mount)" == "none" ]] || die "大根卷不得挂载 /data"
     [[ "$(manifest_value storage_layout)" == "dm-linear-system-cache-userdata" ]] \
         || die "大根卷布局策略不匹配"
     [[ "$(manifest_value dm_name)" == "ufi210-root" ]] || die "dm 名称不匹配"
@@ -567,6 +572,10 @@ fi
 if [[ "$TARGET_PARTITION" == system ]]; then
     grep -Fqx 'PARTLABEL=userdata /data ext4 defaults,noatime,nosuid,nodev,nofail,x-systemd.growfs,x-systemd.device-timeout=30s 0 2' <<<"$fstab" \
         || die "ext4 内 fstab 未正确配置 userdata /data 自动扩容"
+else
+    if grep -Eq '^[^#].*[[:space:]]/data[[:space:]]' <<<"$fstab"; then
+        die "大根卷 fstab 不得配置 /data 挂载"
+    fi
 fi
 grep -q '^PARTLABEL=modem /firmware vfat ro,nosuid,nodev,noexec,fmask=0133,dmask=0022,nofail,x-systemd.device-timeout=30s ' <<<"$fstab" \
     || die "ext4 内 modem 固件分区未按只读策略挂载"
@@ -707,7 +716,8 @@ fi
 tar -tJf "$ROOTFS_TARBALL" > "$tmp_dir/rootfs-files.txt"
 mkdir -p "$tmp_dir/rootfs-meta"
 tar -C "$tmp_dir/rootfs-meta" -xJf "$ROOTFS_TARBALL" \
-    ./etc/resolv.conf ./etc/apt ./etc/NetworkManager/system-connections ./usr/local/bin/nmtui
+    ./etc/resolv.conf ./etc/apt ./etc/NetworkManager/system-connections ./usr/local/bin/nmtui \
+    ./data/local/tmp
 [[ -L "$tmp_dir/rootfs-meta/etc/resolv.conf" ]] \
     || die "rootfs 的 /etc/resolv.conf 不是符号链接"
 [[ "$(readlink "$tmp_dir/rootfs-meta/etc/resolv.conf")" == "/run/NetworkManager/resolv.conf" ]] \
@@ -718,6 +728,8 @@ tar -C "$tmp_dir/rootfs-meta" -xJf "$ROOTFS_TARBALL" \
     || die "Wi-Fi AP 连接权限不是 0600"
 [[ "$(stat -c '%a' "$tmp_dir/rootfs-meta/usr/local/bin/nmtui")" == "755" ]] \
     || die "nmtui 包装器权限不是 0755"
+[[ "$(stat -c '%a' "$tmp_dir/rootfs-meta/data/local/tmp")" == "1777" ]] \
+    || die "ADB shell 临时目录权限不是 1777"
 expected_runtime_sources="$(cat <<EOF
 deb $DEBIAN_RUNTIME_MIRROR bookworm main
 deb $DEBIAN_RUNTIME_MIRROR bookworm-updates main

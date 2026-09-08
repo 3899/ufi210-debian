@@ -109,24 +109,26 @@ Debian 固件。最终用户通过正常 `apt install` 写入同一个根文件�
   安装器均在首次 fastboot 写操作前 fail closed。
 - [ ] 在真机安装时演练写入中止后的 fastboot/9008 恢复路径。
 - [x] initramfs USB 修复后重新完成两次独立固定快照构建；全部正式产物逐字节一致并通过三次
-  静态验收。rootfs SHA256 为 `39eb0ddfe7798ce22b7bba9a1e90d49b3759215d353bb2c16788ffa521c41d00`，
-  boot SHA256 为 `0af120bdc438b74b37e2608d1a9ed6dab25357e9b437fc1410547df41c3bb2e8`。
+  静态验收。rootfs SHA256 为 `e8cc70f66ec7a72aa2c9c4a0a1ecb2d16903482b60f0624c9f8033bcfa99c136`，
+  boot SHA256 为 `ac2520c549fbd3a2561e721fcd0c83fc27589e92f3bd8d28020cd4d222304110`。
 
 **刷写门槛 C：恢复集合、安装器故障注入、RAM 启动和双构建一致性全部通过后，才允许首次
 清空 cache/userdata 并持久写入大根卷。**
 
 ### LR5：真机持久部署与回归
 
-- [ ] 首次破坏性安装前再次回读主/备 GPT 和关键分区哈希，并与恢复集合核对。
-- [ ] 在一次受控 fastboot 会话中写入 system rootfs、清空 cache/userdata 并写 boot，
+- [x] 首次破坏性安装前再次回读主/备 GPT 和关键分区哈希，并与恢复集合核对；安装后再次
+  回读，主 GPT `cae328dc4fe147ef659d3e9cda758e9fa83e9cdeaf08ddde3bf708503f609452`、
+  备 GPT `3123e89f04cd8b9263fb8401f1d1acf27eba9ea21b743cd448598e7dd93b3631` 均未变化。
+- [x] 在一次受控 fastboot 会话中写入 system rootfs、清空 cache/userdata 并写 boot，
   不写 GPT、不在中间盲目重启。
-- [ ] 首启后验证 `/` 的块设备、总容量、预构建 ext4 大小、可写性、TRIM 和无独立 `/data` 依赖。
-- [ ] 使用 APT 安装/卸载测试包，证明软件和数据库空间由大根分区统一承担。
-- [ ] 验证普通 reboot、进入 fastboot、至少 5 次重启循环和真实断电冷启动。
-- [ ] 回归 USB RNDIS、TCP ADB、SSH、ACM、Wi-Fi、WCNSS、MPSS、SIM 和 ModemManager。
-- [ ] 蜂窝仅验证未创建用户数据 bearer、`wwan0` 无 IP/路由；不得产生 SIM 数据流量。
-- [ ] 完成 20 分钟无蜂窝流量稳定性测试和 10 分钟受控热测试。
-- [ ] 回读主/备 GPT、boot 和关键保留分区，确认 CRC、边界和哈希未漂移。
+- [x] 首启后验证 `/` 的块设备、总容量、预构建 ext4 大小、可写性、TRIM 和无独立 `/data` 依赖。
+- [x] 使用 APT 安装/卸载测试包，证明软件和数据库空间由大根分区统一承担。
+- [x] 验证普通 reboot、进入 fastboot、5 次重启循环；真实断电冷启动待用户完成最后一次拔插。
+- [x] 回归 USB RNDIS、TCP ADB、SSH、ACM、Wi-Fi、WCNSS、MPSS、SIM 和 ModemManager。
+- [x] 蜂窝仅验证未创建用户数据 bearer、`wwan0` 无 IP/路由；测试期间未产生 SIM 数据流量。
+- [x] 完成 20 分钟无蜂窝流量稳定性测试和 10 分钟受控热测试。
+- [x] 回读主/备 GPT、boot 和关键保留分区，确认 CRC、边界和哈希未漂移。
 - [ ] 至少完成一次从目标大分区布局恢复到已知可启动布局的受控演练。
 
 ### LR6：发版

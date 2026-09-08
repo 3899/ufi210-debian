@@ -4,10 +4,11 @@ param(
     [switch]$ConfirmEraseCacheAndUserdata,
     [switch]$ConfirmFastbootTarget,
     [switch]$ValidateRecoveryOnly,
+    [switch]$ResumePostInstallValidation,
     [string]$BootBackupPath = "",
     [string]$RecoveryBackupDirectory = "",
     [ValidateRange(60, 600)]
-    [int]$LinuxTimeoutSeconds = 240,
+    [int]$LinuxTimeoutSeconds = 600,
     [ValidateRange(15, 120)]
     [int]$FastbootTimeoutSeconds = 45,
     [string]$DeviceIp = "192.168.68.1",
@@ -441,6 +442,7 @@ test "$fs_block_count" -gt 0
 test "$fs_block_size" -gt 0
 test "$((fs_block_count * fs_block_size))" = __ROOT_FILESYSTEM_BYTES__
 ! mountpoint -q /data
+test "$(stat -c %a /data/local/tmp)" = 1777
 root_probe="/var/tmp/.ufi210-install-write-test-$$"
 printf 'ok\n' > "$root_probe"
 test "$(cat "$root_probe")" = ok
@@ -464,26 +466,64 @@ echo LARGE_ROOTFS_RUNTIME_OK
     $command = $command.Replace("__ROOT_FILESYSTEM_UUID__", $LargeRootFilesystemUuid)
     $command = $command.Replace("__ROOT_DEVICE_BYTES__", "$LargeRootBytes")
     $command = $command.Replace("__ROOT_FILESYSTEM_BYTES__", "$LargeRootFilesystemBytes")
+    $commandBase64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($command))
+    $remoteCommand = "printf %s $commandBase64 | base64 -d | /bin/sh"
     $deadline = (Get-Date).AddSeconds($LinuxTimeoutSeconds)
+    $attempt = 0
     do {
-        $result = Invoke-Native -Executable $Adb -CommandArgs @("-s", $TcpAdbSerial, "shell", $command) -AllowFailure
+        $attempt++
+        $result = Invoke-Native -Executable $Adb -CommandArgs @(
+            "-s", $TcpAdbSerial, "shell", $remoteCommand
+        ) -AllowFailure
         if ($result.ExitCode -eq 0 -and $result.Text -match '(?m)^LARGE_ROOTFS_RUNTIME_OK\r?$') {
             Write-Utf8File (Join-Path $OutputDir "runtime-$Phase.txt") ($result.Text + "`r`n")
             return
         }
         Start-Sleep -Seconds 2
     } while ((Get-Date) -lt $deadline)
-    throw "Debian 大根卷运行验收失败：$Phase`r`n$($result.Text)"
+    throw "Debian 大根卷运行验收失败：$Phase`r`nattempts=$attempt`r`nlast_exit_code=$($result.ExitCode)`r`nlogs=$OutputDir`r`n$($result.Text)"
+}
+
+function Invoke-PersistentRuntimeValidation {
+    param([string]$InitialPhase)
+
+    Assert-DebianRuntime $InitialPhase
+    $firstBootId = (Invoke-Native -Executable $Adb -CommandArgs @(
+        "-s", $TcpAdbSerial, "shell", "cat /proc/sys/kernel/random/boot_id"
+    )).Text.Trim()
+    if ($firstBootId -notmatch '^[0-9a-f-]{36}$') {
+        throw "无法读取首次启动 boot_id：$firstBootId"
+    }
+
+    Write-Host "执行普通 warm reboot，验证持久 boot 无需插拔自动返回 Debian。"
+    Invoke-Native -Executable $Adb -CommandArgs @(
+        "-s", $TcpAdbSerial, "shell", "sync; reboot"
+    ) -AllowFailure | Out-Null
+    Wait-TcpAdbOffline 30
+    Assert-DebianRuntime "ordinary-reboot"
+    $secondBootId = (Invoke-Native -Executable $Adb -CommandArgs @(
+        "-s", $TcpAdbSerial, "shell", "cat /proc/sys/kernel/random/boot_id"
+    )).Text.Trim()
+    if ($secondBootId -notmatch '^[0-9a-f-]{36}$' -or $secondBootId -eq $firstBootId) {
+        throw "普通 reboot 后 boot_id 未变化：before=$firstBootId after=$secondBootId"
+    }
+
+    return [pscustomobject]@{
+        FirstBootId = $firstBootId
+        SecondBootId = $secondBootId
+    }
 }
 
 foreach ($tool in @($Adb, $Fastboot)) {
     if (-not (Test-Path -LiteralPath $tool -PathType Leaf)) { throw "缺少工具：$tool" }
 }
-if (-not $ConfirmPersistentInstall) {
-    throw "本脚本会持久覆盖 system、cache、userdata 和 boot；确认目标和恢复准备后使用 -ConfirmPersistentInstall"
-}
-if (-not $ConfirmEraseCacheAndUserdata) {
-    throw "本脚本会永久清除 cache 和 userdata 的全部原有内容；确认无需保留后使用 -ConfirmEraseCacheAndUserdata"
+if (-not $ResumePostInstallValidation) {
+    if (-not $ConfirmPersistentInstall) {
+        throw "本脚本会持久覆盖 system、cache、userdata 和 boot；确认目标和恢复准备后使用 -ConfirmPersistentInstall"
+    }
+    if (-not $ConfirmEraseCacheAndUserdata) {
+        throw "本脚本会永久清除 cache 和 userdata 的全部原有内容；确认无需保留后使用 -ConfirmEraseCacheAndUserdata"
+    }
 }
 
 $manifest = Read-KeyValues $ManifestPath
@@ -496,6 +536,9 @@ $required = [ordered]@{
     rootfs_label = "ufi210-root"
     rootfs_auto_grow = "disabled"
     rootfs_segments = "complete-prebuilt-filesystem"
+    data_mount = "none"
+    adbd_shell_tmpdir = "/data/local/tmp"
+    adbd_shell_tmpdir_storage = "rootfs"
     storage_layout = "dm-linear-system-cache-userdata"
     dm_name = "ufi210-root"
     dm_total_sectors = "6807111"
@@ -556,6 +599,44 @@ if ((Get-Item -LiteralPath $BootImage).Length -ge $BootPartitionBytes) {
 if (-not $OutputRoot) { $OutputRoot = Join-Path $ProjectRoot "out\persistent-install" }
 $OutputDir = Join-Path ([IO.Path]::GetFullPath($OutputRoot)) (Get-Date -Format "yyyyMMdd-HHmmss")
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+
+if ($ResumePostInstallValidation) {
+    if (-not $BootBackupPath -or -not $RecoveryBackupDirectory) {
+        throw "恢复安装后验收必须同时指定 -BootBackupPath 和 -RecoveryBackupDirectory"
+    }
+    if (-not (Test-Path -LiteralPath $BootBackupPath -PathType Leaf) -or
+        (Get-Item -LiteralPath $BootBackupPath).Length -ne $BootPartitionBytes) {
+        throw "boot 备份不存在或尺寸不是 32 MiB：$BootBackupPath"
+    }
+    $bootBackupHash = (Get-FileHash -LiteralPath $BootBackupPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $gptBackup = Assert-GptBackups $RecoveryBackupDirectory
+    Invoke-Native -Executable $Adb -CommandArgs @("connect", $TcpAdbSerial) -AllowFailure | Out-Null
+    $resumeAdbDevices = @(Get-AdbDevices)
+    if ($resumeAdbDevices.Count -ne 1 -or $resumeAdbDevices[0] -ne $TcpAdbSerial) {
+        throw "恢复安装后验收只允许目标 TCP ADB 在线：$($resumeAdbDevices -join ', ')"
+    }
+    if (Get-FastbootDevice) {
+        throw "恢复安装后验收检测到 Fastboot 设备，拒绝继续"
+    }
+
+    $runtime = Invoke-PersistentRuntimeValidation "resume-current"
+    $summary = @(
+        "UFI210 Debian 大根卷持久安装恢复验收通过",
+        "validation_mode=resume-post-install-no-flash",
+        "persistent_partitions=boot,system,cache,userdata", "gpt_changes=none",
+        "root=/dev/mapper/ufi210-root", "root_bytes=$LargeRootBytes", "reboot_mode=warm",
+        "first_boot_id=$($runtime.FirstBootId)", "ordinary_reboot_boot_id=$($runtime.SecondBootId)",
+        "boot_sha256=$bootHash", "rootfs_logical_sha256=$($manifest.rootfs_image_sha256)",
+        "rootfs_system_sha256=$rootfsSystemHash", "rootfs_cache_sha256=$rootfsCacheHash",
+        "rootfs_userdata_sha256=$rootfsUserdataHash",
+        "boot_backup=$BootBackupPath", "boot_backup_sha256=$bootBackupHash",
+        "gpt_primary_sha256=$($gptBackup.PrimarySha256)", "gpt_backup_sha256=$($gptBackup.BackupSha256)",
+        "ssh=${DeviceIp}:22", "adb_tcp=$TcpAdbSerial", "logs=$OutputDir"
+    ) -join "`r`n"
+    Write-Utf8File (Join-Path $OutputDir "SUMMARY.txt") ($summary + "`r`n")
+    Write-Host $summary
+    return
+}
 
 Invoke-Native -Executable $Adb -CommandArgs @("connect", $TcpAdbSerial) -AllowFailure | Out-Null
 $adbDevices = @(Get-AdbDevices)
@@ -725,28 +806,13 @@ Write-Utf8File (Join-Path $OutputDir "flash-boot.txt") ($flashBoot.Text + "`r`n"
 Write-Host "从 RAM 启动同一镜像，验证 dm-linear 大根卷。"
 $ramBoot = Invoke-Native -Executable $Fastboot -CommandArgs @("-s", $fastbootSerial, "boot", $BootImage)
 Write-Utf8File (Join-Path $OutputDir "fastboot-boot.txt") ($ramBoot.Text + "`r`n")
-Assert-DebianRuntime "first-boot"
-$firstBootId = (Invoke-Native -Executable $Adb -CommandArgs @(
-    "-s", $TcpAdbSerial, "shell", "cat /proc/sys/kernel/random/boot_id"
-)).Text.Trim()
-if ($firstBootId -notmatch '^[0-9a-f-]{36}$') { throw "无法读取首次启动 boot_id：$firstBootId" }
-
-Write-Host "执行普通 warm reboot，验证持久 boot 无需插拔自动返回 Debian。"
-Invoke-Native -Executable $Adb -CommandArgs @("-s", $TcpAdbSerial, "shell", "sync; reboot") -AllowFailure | Out-Null
-Wait-TcpAdbOffline 30
-Assert-DebianRuntime "ordinary-reboot"
-$secondBootId = (Invoke-Native -Executable $Adb -CommandArgs @(
-    "-s", $TcpAdbSerial, "shell", "cat /proc/sys/kernel/random/boot_id"
-)).Text.Trim()
-if ($secondBootId -notmatch '^[0-9a-f-]{36}$' -or $secondBootId -eq $firstBootId) {
-    throw "普通 reboot 后 boot_id 未变化：before=$firstBootId after=$secondBootId"
-}
+$runtime = Invoke-PersistentRuntimeValidation "first-boot"
 
 $summary = @(
     "UFI210 Debian 大根卷持久安装与重启验收通过",
     "persistent_partitions=boot,system,cache,userdata", "gpt_changes=none",
     "root=/dev/mapper/ufi210-root", "root_bytes=$LargeRootBytes", "reboot_mode=warm",
-    "first_boot_id=$firstBootId", "ordinary_reboot_boot_id=$secondBootId",
+    "first_boot_id=$($runtime.FirstBootId)", "ordinary_reboot_boot_id=$($runtime.SecondBootId)",
     "boot_sha256=$bootHash", "rootfs_logical_sha256=$($manifest.rootfs_image_sha256)",
     "rootfs_system_sha256=$rootfsSystemHash", "rootfs_cache_sha256=$rootfsCacheHash",
     "rootfs_userdata_sha256=$rootfsUserdataHash",

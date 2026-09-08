@@ -17,6 +17,31 @@ class PersistentStorageLayoutTests(unittest.TestCase):
         self.assertIn("if (-not $ConfirmEraseCacheAndUserdata)", installer)
         self.assertIn("-ConfirmEraseCacheAndUserdata", batch)
 
+    def test_installer_can_resume_post_install_validation_without_reflashing(self) -> None:
+        installer = (PROJECT_ROOT / "scripts/install_debian_large_rootfs.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("[switch]$ResumePostInstallValidation", installer)
+        self.assertIn("[int]$LinuxTimeoutSeconds = 600", installer)
+        self.assertIn(
+            'if ($ResumePostInstallValidation) {',
+            installer,
+        )
+        self.assertIn(
+            'validation_mode=resume-post-install-no-flash',
+            installer,
+        )
+        self.assertIn("[Convert]::ToBase64String", installer)
+        self.assertIn('base64 -d | /bin/sh', installer)
+        resume_start = installer.index("if ($ResumePostInstallValidation) {")
+        resume_end = installer.index(
+            'Invoke-Native -Executable $Adb -CommandArgs @("connect", $TcpAdbSerial)',
+            resume_start,
+        )
+        resume_block = installer[resume_start:resume_end]
+        self.assertNotIn('"erase"', resume_block)
+        self.assertNotIn('"flash"', resume_block)
+
     def test_installer_flashes_boot_last_without_touching_sensitive_partitions(self) -> None:
         installer = (PROJECT_ROOT / "scripts/install_debian_large_rootfs.ps1").read_text(
             encoding="utf-8"
@@ -71,6 +96,10 @@ class PersistentStorageLayoutTests(unittest.TestCase):
             'ROOTFS_CACHE_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-cache.img"',
             'ROOTFS_USERDATA_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-userdata.img"',
             'rootfs_segments=complete-prebuilt-filesystem',
+            'install -d -m 1777 "$ROOTFS/data/local/tmp"',
+            "printf 'data_mount=none\\n'",
+            "printf 'adbd_shell_tmpdir=/data/local/tmp\\n'",
+            "printf 'adbd_shell_tmpdir_storage=rootfs\\n'",
         )
         for value in expected:
             self.assertIn(value, build)

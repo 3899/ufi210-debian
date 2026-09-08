@@ -149,6 +149,7 @@ root_blocks=$(dumpe2fs -h /dev/mapper/ufi210-root 2>/dev/null | sed -n 's/^Block
 root_block_size=$(dumpe2fs -h /dev/mapper/ufi210-root 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
 printf 'ROOT_FS_BYTES=%s\n' "$((root_blocks * root_block_size))"
 if mountpoint -q /data; then echo 'DATA_MOUNTED=yes'; else echo 'DATA_MOUNTED=no'; fi
+printf 'ADB_TMP_MODE='; stat -c %a /data/local/tmp
 root_probe="/var/tmp/.ufi210-cold-boot-write-test-$$"
 printf 'ok\n' > "$root_probe"
 test "$(cat "$root_probe")" = ok
@@ -185,6 +186,7 @@ function Assert-RuntimeProbe {
         "ROOT_UUID=$($Manifest.rootfs_uuid)",
         "ROOT_FS_BYTES=$($Manifest.dm_filesystem_bytes)",
         "DATA_MOUNTED=no",
+        "ADB_TMP_MODE=1777",
         "ROOT_WRITABLE=yes",
         "DM_BYTES=$($Manifest.dm_total_bytes)",
         "DM_LINES=3",

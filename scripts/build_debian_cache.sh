@@ -537,6 +537,7 @@ mkdir -p \
 if [[ "$TARGET_PARTITION" == system ]]; then
     mkdir -p "$ROOTFS/data"
 fi
+install -d -m 1777 "$ROOTFS/data/local/tmp"
 install -m 0755 "$USB_GADGET_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-gadget"
 install -m 0755 "$USB_WATCHDOG_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-watchdog"
 install -m 0755 "$WCNSS_START_SCRIPT" "$ROOTFS/usr/sbin/zu02-wcnss-start"
@@ -1181,6 +1182,7 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
         printf 'rootfs_userdata_image_bytes=%s\n' "$rootfs_userdata_image_bytes"
         printf 'rootfs_userdata_image_sha256=%s\n' "$rootfs_userdata_image_sha256"
         printf 'rootfs_segments=complete-prebuilt-filesystem\n'
+        printf 'data_mount=none\n'
         printf 'gpt_changes=none\n'
         printf 'cache_previous_contents=erased-by-installer\n'
         printf 'userdata_previous_contents=erased-by-installer\n'
@@ -1205,6 +1207,8 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'device_ip=192.168.68.1\n'
     printf 'root_password=%s\n' "$ROOT_PASSWORD"
     printf 'adbd=tcp-5555\n'
+    printf 'adbd_shell_tmpdir=/data/local/tmp\n'
+    printf 'adbd_shell_tmpdir_storage=rootfs\n'
     printf 'fastboot_reboot_command=adb-shell-system-bin-reboot-bootloader\n'
     printf 'adb_tcp_endpoint=192.168.68.1:5555\n'
     printf 'usb_functions=rndis-acm\n'

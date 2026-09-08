@@ -156,6 +156,7 @@ root_blocks=$(dumpe2fs -h /dev/mapper/ufi210-root 2>/dev/null | sed -n 's/^Block
 root_block_size=$(dumpe2fs -h /dev/mapper/ufi210-root 2>/dev/null | sed -n 's/^Block size:[[:space:]]*//p')
 printf 'ROOT_FS_BYTES=%s\n' "$((root_blocks * root_block_size))"
 if mountpoint -q /data; then echo 'DATA_MOUNTED=yes'; else echo 'DATA_MOUNTED=no'; fi
+printf 'ADB_TMP_MODE='; stat -c %a /data/local/tmp
 printf 'DM_BYTES='; blockdev --getsize64 /dev/mapper/ufi210-root
 printf 'DM_LINES='; dmsetup table ufi210-root | wc -l
 printf 'FSTRIM_ENABLED='; systemctl is-enabled fstrim.timer
@@ -193,6 +194,7 @@ function Assert-RuntimeProbe {
         "ROOT_UUID=$ExpectedRootfsUuid",
         "ROOT_FS_BYTES=$ExpectedRootfsBytes",
         "DATA_MOUNTED=no",
+        "ADB_TMP_MODE=1777",
         "DM_BYTES=3485240832",
         "DM_LINES=3",
         "FSTRIM_ENABLED=enabled",

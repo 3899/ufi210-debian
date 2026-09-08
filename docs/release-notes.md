@@ -24,7 +24,7 @@
 
 - Debian 12 Bookworm armhf 与 Linux `7.0.0-msm8909`。
 - QCDT v3：30 条 MSM8909 匹配记录，全部指向唯一 DW01 DTB。
-- 持久 Debian rootfs、普通 warm reboot 和真实断电冷启动。
+- 持久 Debian rootfs 和普通 warm reboot；真实断电冷启动作为本候选发布前的最后一项实机验收。
 - 固定 RNDIS `192.168.68.1` 与 ACM、RNDIS 上的 TCP ADB 和 SSH；RNDIS MAC 按设备稳定派生。
 - NetworkManager、完整 `nmcli`、简体中文 `nmtui`。
 - WCNSS/WCN36XX、Wi-Fi 扫描、WPA2 AP 与 DHCP。
@@ -34,10 +34,10 @@
 - 前一版 system/data/boot 候选已完成两次独立构建、端到端持久安装和 boot 回读；本版大根卷
   另行执行三段镜像的逐字节复现和真机回归。
 - 5 次普通重启和 10 次 TCP `adbd` 热重启通过；普通重启均无需拔插自动返回 Debian。
-- 20 分钟综合监控共 2384 个 RNDIS ping 样本零失败，最高 60°C；10 分钟四核
-  受控负载最高 76°C，cooling state 最高 7。
-- WCNSS 扫描到 28 个 BSS，10 次 AP/managed 切换通过；MPSS/SIM/QMI/AT/ModemManager
-  验收和 LTE 注册通过；只读基础验收未创建 bearer，五个敏感分区哈希不变。
+- 本版 20 分钟综合监控共 2486 个 RNDIS ping 样本零失败，最高 56°C；10 分钟四核
+  受控负载最高 76°C，cooling state 最高 6。
+- 本版 WCNSS 扫描到 22 个 BSS；MPSS/SIM/QMI/AT/ModemManager 验收通过；只读基础验收
+  未创建 bearer，且 `wwan0` 无地址、无默认路由、无活动 GSM 连接。
 - 20 轮 LTE 数据连接均获得 IPv4，公网 ICMP/TCP 和运营商 DNS 通过；每轮断开 bearer、删除
   临时连接，并核对五个敏感分区哈希不变。
 - 隔离下游客户端的 NetworkManager nftables NAT、公网访问、运营商 DNS、网关 dnsmasq 和

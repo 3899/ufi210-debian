@@ -226,6 +226,12 @@ registration_state="$(mmcli -m any --output-keyvalue | grep '^modem.3gpp.registr
 packet_state="$(mmcli -m any --output-keyvalue | grep '^modem.3gpp.packet-service-state' | cut -d: -f2- | xargs)"
 printf 'MODEM_REG=%s\n' "$registration_state"
 printf 'PACKET_STATE=%s\n' "$packet_state"
+printf 'WWAN_IPV4_GLOBAL='; ip -4 -o addr show dev wwan0 scope global | wc -l
+printf 'WWAN_IPV6_GLOBAL='; ip -6 -o addr show dev wwan0 scope global | wc -l
+printf 'WWAN_IPV4_DEFAULT='; ip -4 route show default dev wwan0 | wc -l
+printf 'WWAN_IPV6_DEFAULT='; ip -6 route show default dev wwan0 | wc -l
+printf 'ACTIVE_GSM='; nmcli -t -f TYPE connection show --active \
+    | awk '$0 == "gsm" { count++ } END { print count + 0 }'
 printf 'TEMP_MAX='; sort -nr /sys/class/thermal/thermal_zone*/temp | head -n 1
 sed -n 's/^MemAvailable:[[:space:]]*\([0-9][0-9]*\).*/MEM_AVAILABLE_KB=\1/p' /proc/meminfo
 printf 'ROOTFS_AVAILABLE_BYTES='; df -B1 --output=avail / | tail -n 1 | xargs
@@ -265,12 +271,20 @@ try {
         $emmcBlockSizeMatch = [regex]::Match($probe.Text, '(?m)^EMMC_LOGICAL_BLOCK_SIZE=(\d+)\r?$')
         $modemRegistrationMatch = [regex]::Match($probe.Text, '(?m)^MODEM_REG=([^\r\n]*)\r?$')
         $packetStateMatch = [regex]::Match($probe.Text, '(?m)^PACKET_STATE=([^\r\n]*)\r?$')
+        $wwanIpv4GlobalMatch = [regex]::Match($probe.Text, '(?m)^WWAN_IPV4_GLOBAL=(\d+)\r?$')
+        $wwanIpv6GlobalMatch = [regex]::Match($probe.Text, '(?m)^WWAN_IPV6_GLOBAL=(\d+)\r?$')
+        $wwanIpv4DefaultMatch = [regex]::Match($probe.Text, '(?m)^WWAN_IPV4_DEFAULT=(\d+)\r?$')
+        $wwanIpv6DefaultMatch = [regex]::Match($probe.Text, '(?m)^WWAN_IPV6_DEFAULT=(\d+)\r?$')
+        $activeGsmMatch = [regex]::Match($probe.Text, '(?m)^ACTIVE_GSM=(\d+)\r?$')
         $serviceRestartMatches = @([regex]::Matches($probe.Text, '(?m)^SERVICE_RESTART=([^:\r\n]+):(\d+)\r?$'))
         if (-not $temperatureMatch.Success -or -not $memoryMatch.Success -or
             -not $rootfsMatch.Success -or -not $rootfsBytesMatch.Success -or
             -not $journalMatch.Success -or
             -not $emmcSectorsMatch.Success -or -not $emmcBlockSizeMatch.Success -or
             -not $modemRegistrationMatch.Success -or -not $packetStateMatch.Success -or
+            -not $wwanIpv4GlobalMatch.Success -or -not $wwanIpv6GlobalMatch.Success -or
+            -not $wwanIpv4DefaultMatch.Success -or -not $wwanIpv6DefaultMatch.Success -or
+            -not $activeGsmMatch.Success -or
             $serviceRestartMatches.Count -ne $ExpectedRestartTrackedServices) {
             throw "无法解析 modem、温度、内存或存储状态：`r`n$($probe.Text)"
         }
@@ -312,6 +326,11 @@ try {
             $probe.Text -notmatch '(?m)^DM_BYTES=3485240832\r?$' -or
             $probe.Text -notmatch '(?m)^DM_LINES=3\r?$' -or
             $probe.Text -notmatch '(?m)^FSTRIM_ENABLED=enabled\r?$' -or
+            $wwanIpv4GlobalMatch.Groups[1].Value -ne '0' -or
+            $wwanIpv6GlobalMatch.Groups[1].Value -ne '0' -or
+            $wwanIpv4DefaultMatch.Groups[1].Value -ne '0' -or
+            $wwanIpv6DefaultMatch.Groups[1].Value -ne '0' -or
+            $activeGsmMatch.Groups[1].Value -ne '0' -or
             $probe.Text -notmatch '(?m)^FUNCTION=acm\.usb0\r?$' -or
             $probe.Text -notmatch '(?m)^FUNCTION=rndis\.usb0\r?$' -or
             $remoteprocMatches.Count -ne 2 -or
@@ -339,7 +358,7 @@ try {
             throw "RNDIS 网卡身份、状态或 SSH 发生变化"
         }
         $modemRegisteredText = $modemRegistered.ToString().ToLowerInvariant()
-        $result = "time=$(Get-Date -Format o) uptime_seconds=$uptimeSeconds ping_samples=$($pingSamples.Count) remoteprocs=2 service_restart_changes=0 modem_registered=$modemRegisteredText temperature_millic=$temperatureMillic mem_available_kb=$memAvailableKb rootfs_available_bytes=$rootfsAvailableBytes journal_bytes=$journalBytes emmc_sectors_written=$lastEmmcSectorsWritten result=pass"
+        $result = "time=$(Get-Date -Format o) uptime_seconds=$uptimeSeconds ping_samples=$($pingSamples.Count) remoteprocs=2 service_restart_changes=0 modem_registered=$modemRegisteredText cellular_data=inactive temperature_millic=$temperatureMillic mem_available_kb=$memAvailableKb rootfs_available_bytes=$rootfsAvailableBytes journal_bytes=$journalBytes emmc_sectors_written=$lastEmmcSectorsWritten result=pass"
         $probeResults.Add($result)
         Write-Host $result
         if ($uptimeSeconds -ge $targetUptimeSeconds) { break }
@@ -378,6 +397,9 @@ $summary = @(
     "remoteproc_failures=0"
     "service_restart_changes=0"
     "modem_registration_required=$((-not $AllowUnregisteredModem).ToString().ToLowerInvariant())"
+    "cellular_global_addresses=0"
+    "cellular_default_routes=0"
+    "active_gsm_connections=0"
     "max_temperature_millic=$maxTemperatureMillic"
     "min_mem_available_kb=$minMemAvailableKb"
     "min_rootfs_available_bytes=$minRootfsAvailableBytes"
