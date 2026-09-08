@@ -9,22 +9,42 @@ log() {
 }
 
 start_recovery_network() {
+    udc=
+    attempt=1
+    while [ "$attempt" -le 60 ]; do
+        for candidate in /sys/class/udc/*; do
+            [ -e "$candidate" ] || continue
+            udc="${candidate##*/}"
+            break
+        done
+        [ -z "$udc" ] || break
+        sleep 1
+        attempt=$((attempt + 1))
+    done
+    if [ -z "$udc" ]; then
+        log 'USB Device Controller did not appear within 60 seconds'
+        return 1
+    fi
+
     mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
     /sbin/zu02-usb-gadget setup
     /sbin/zu02-usb-gadget activate
 
     attempt=1
     while [ "$attempt" -le 15 ]; do
-        [ -e /sys/class/net/usb0 ] && break
+        [ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ] || break
         sleep 1
         attempt=$((attempt + 1))
     done
-    if [ -e /sys/class/net/usb0 ]; then
-        ip link set usb0 up
-        ip addr replace 192.168.68.1/24 dev usb0
-        : > /run/udhcpd.leases
-        udhcpd /etc/udhcpd.conf >/dev/kmsg 2>&1 || true
+    if [ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ]; then
+        log 'USB recovery RNDIS and ACM did not appear after gadget activation'
+        return 1
     fi
+
+    ip link set usb0 up
+    ip addr replace 192.168.68.1/24 dev usb0
+    : > /run/udhcpd.leases
+    udhcpd /etc/udhcpd.conf >/dev/kmsg 2>&1 || true
 }
 
 rescue_shell() {

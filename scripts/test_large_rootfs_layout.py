@@ -70,6 +70,14 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         self.assertIn("rescue_shell 'cache partition is missing, duplicated, or has the wrong size'", init)
         self.assertIn("rescue_shell 'userdata partition is missing, duplicated, or has the wrong size'", init)
 
+    def test_initramfs_waits_for_both_usb_recovery_functions(self) -> None:
+        init = INITRAMFS.read_text(encoding="utf-8")
+        self.assertIn('for candidate in /sys/class/udc/*; do', init)
+        self.assertIn("[ \"$attempt\" -le 60 ]", init)
+        self.assertIn("USB Device Controller did not appear within 60 seconds", init)
+        self.assertIn('[ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ]', init)
+        self.assertIn("USB recovery RNDIS and ACM did not appear", init)
+
     def test_ram_probe_is_read_only_and_never_flashes(self) -> None:
         init = INITRAMFS.read_text(encoding="utf-8")
         probe = PROBE_BUILD.read_text(encoding="utf-8")
