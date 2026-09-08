@@ -9,32 +9,34 @@ log() {
 }
 
 start_recovery_network() {
-    udc=
+    gadget_started=no
     attempt=1
     while [ "$attempt" -le 60 ]; do
-        udc="$(ls /sys/class/udc 2>/dev/null | head -n 1 || true)"
-        [ -z "$udc" ] || break
+        if /sbin/zu02-usb-gadget setup && /sbin/zu02-usb-gadget activate; then
+            gadget_started=yes
+            break
+        fi
+        log "USB recovery gadget is not ready (attempt $attempt/60)"
         sleep 1
         attempt=$((attempt + 1))
     done
-    if [ -z "$udc" ]; then
-        log 'USB Device Controller did not appear within 60 seconds'
+    if [ "$gadget_started" != yes ]; then
+        log 'USB recovery gadget did not start within 60 attempts'
         return 1
     fi
 
-    mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
-    /sbin/zu02-usb-gadget setup
-    /sbin/zu02-usb-gadget activate
-
     attempt=1
     while [ "$attempt" -le 15 ]; do
-        [ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ] || break
+        [ -e /sys/class/net/usb0 ] && break
         sleep 1
         attempt=$((attempt + 1))
     done
-    if [ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ]; then
-        log 'USB recovery RNDIS and ACM did not appear after gadget activation'
+    if [ ! -e /sys/class/net/usb0 ]; then
+        log 'USB recovery RNDIS did not appear after gadget activation'
         return 1
+    fi
+    if [ ! -c /dev/ttyGS0 ]; then
+        log 'USB recovery ACM is unavailable; continuing with RNDIS management'
     fi
 
     ip link set usb0 up

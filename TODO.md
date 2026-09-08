@@ -84,14 +84,19 @@ Debian 固件。最终用户通过正常 `apt install` 写入同一个根文件�
 - [ ] 在不写 GPT 的条件下完成内核/initramfs RAM 启动，验证新布局识别和失败回退路径。
 - [x] 完成已知可用 m8 boot 的 `fastboot boot` 对照，以及“m9 initramfs + system 根分区”诊断启动；
   两者均恢复 RNDIS、ACM 和 ADB，证明内核、DTB、bootloader RAM 启动路径及增大的 initramfs 可用。
-- [x] 发现旧 initramfs 在 UDC 延迟探测完成前只检查一次 USB；已增加最多 60 秒 UDC 等待，
-  并要求 `usb0` 与 `ttyGS0` 同时出现，否则 fail closed。该修复已通过静态和可复现构建检查，
-  但尚未通过救援运行态验收。
+- [x] 发现旧 initramfs 在 UDC 延迟探测完成前只检查一次 USB；第一版修复增加最多 60 秒的
+  `/sys/class/udc` 预等待，并要求 `usb0` 与 `ttyGS0` 同时出现，否则 fail closed。
 - [x] 真机执行修复版只读 probe（SHA256 `d99dd8aa94482da44f0cd90be21472101dec1202cef0532ccf0dbea28fc87b0c`）；
   Fastboot 成功装载镜像且未执行分区操作，但 120 秒内没有 RNDIS/ACM 或其他 USB 重新枚举，
   因此“仅等待 UDC 即可修复”被实测否定，继续禁止刷写。
 - [x] 生成严格 A/B RAM 镜像：新 initramfs + `root=system` 控制镜像、旧 initramfs + dm probe
   镜像，以及 USB 建立后、任何 dm 命令前停留的 `ufi210.pre_dm_rescue=1` 诊断镜像。
+- [x] 真机执行第一版修复后的 `root=system` 控制镜像（SHA256
+  `2be1685f37be54bd9780b03a17a71a0bd89aff333b2ad586f861352a7174ce95`）；Fastboot 装载成功，
+  但 180 秒内仍无任何 USB 枚举。内核、QCDT、cmdline 与旧成功诊断镜像相同，ramdisk 解包后
+  仅 init 的 UDC 预等待/ACM 判定和无关的 regulatory 签名不同，证明第一版 USB 修复仍有回归。
+- [x] 改为对完整的 gadget setup/activate 流程最多重试 60 次，每次重新探测 UDC；RNDIS 仍是
+  正常启动的硬门槛，ACM 缺失只降低救援能力，不再阻断可正常挂载的 Debian 根。
 - [ ] 完成 A/B 控制和 pre-dm ACM 分步探测，区分 initramfs USB 回归与 device-mapper 路径故障。
 - [ ] 使用修复后的正式 `boot-debian-large-rootfs-dm-probe.img` 完成只读 dm-linear 真机探测；
   该步骤通过前继续禁止写入 system、cache、userdata 和 boot。

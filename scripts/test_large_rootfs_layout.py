@@ -70,14 +70,22 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         self.assertIn("rescue_shell 'cache partition is missing, duplicated, or has the wrong size'", init)
         self.assertIn("rescue_shell 'userdata partition is missing, duplicated, or has the wrong size'", init)
 
-    def test_initramfs_waits_for_both_usb_recovery_functions(self) -> None:
+    def test_initramfs_retries_the_complete_usb_gadget_setup(self) -> None:
         init = INITRAMFS.read_text(encoding="utf-8")
-        self.assertIn('ls /sys/class/udc 2>/dev/null | head -n 1', init)
+        self.assertIn(
+            "if /sbin/zu02-usb-gadget setup && "
+            "/sbin/zu02-usb-gadget activate; then",
+            init,
+        )
+        self.assertNotIn('udc="$(ls /sys/class/udc', init)
         self.assertNotIn('for candidate in /sys/class/udc/*; do', init)
         self.assertIn("[ \"$attempt\" -le 60 ]", init)
-        self.assertIn("USB Device Controller did not appear within 60 seconds", init)
-        self.assertIn('[ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ]', init)
-        self.assertIn("USB recovery RNDIS and ACM did not appear", init)
+        self.assertIn("USB recovery gadget did not start within 60 attempts", init)
+        self.assertIn("USB recovery RNDIS did not appear", init)
+        self.assertIn("USB recovery ACM is unavailable; continuing", init)
+        self.assertNotIn(
+            '[ ! -e /sys/class/net/usb0 ] || [ ! -c /dev/ttyGS0 ]', init
+        )
 
     def test_ram_probe_is_read_only_and_never_flashes(self) -> None:
         init = INITRAMFS.read_text(encoding="utf-8")
