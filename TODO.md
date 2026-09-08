@@ -82,11 +82,18 @@ Debian 固件。最终用户通过正常 `apt install` 写入同一个根文件�
 - [x] 对 rootfs、boot、dm table、恢复包和安装包执行安全解包、边界、哈希和隐私审计；
   `verify_debian_large_rootfs.sh`、只读探测 boot 自解析、7 项安装器故障注入和公开归档复审均通过。
 - [ ] 在不写 GPT 的条件下完成内核/initramfs RAM 启动，验证新布局识别和失败回退路径。
+- [x] 完成已知可用 m8 boot 的 `fastboot boot` 对照，以及“m9 initramfs + system 根分区”诊断启动；
+  两者均恢复 RNDIS、ACM 和 ADB，证明内核、DTB、bootloader RAM 启动路径及增大的 initramfs 可用。
+- [x] 发现旧 initramfs 在 UDC 延迟探测完成前只检查一次 USB，导致 dm 探测停在救援 shell 时
+  没有 RNDIS/ACM；现已等待 UDC，并要求 `usb0` 与 `ttyGS0` 同时出现，否则 fail closed。
+- [ ] 使用修复后的正式 `boot-debian-large-rootfs-dm-probe.img` 完成只读 dm-linear 真机探测；
+  该步骤通过前继续禁止写入 system、cache、userdata 和 boot。
 - [x] 离线模拟错误磁盘容量、错误 GPT CRC、缺失备份、错误 manifest、镜像哈希错误和镜像截断，
   安装器均在首次 fastboot 写操作前 fail closed。
 - [ ] 在真机安装时演练写入中止后的 fastboot/9008 恢复路径。
-- [x] 完成两次独立构建并逐字节比较 boot、rootfs；固定 Debian Snapshot 的对应源码归档
-  通过两次确定性复核，公开 RC 的四个归档通过外层哈希和解包复审。
+- [x] initramfs USB 修复后重新完成两次独立固定快照构建；全部正式产物逐字节一致并通过三次
+  静态验收。rootfs SHA256 为 `39eb0ddfe7798ce22b7bba9a1e90d49b3759215d353bb2c16788ffa521c41d00`，
+  boot SHA256 为 `0af120bdc438b74b37e2608d1a9ed6dab25357e9b437fc1410547df41c3bb2e8`。
 
 **刷写门槛 C：恢复集合、安装器故障注入、RAM 启动和双构建一致性全部通过后，才允许首次
 清空 cache/userdata 并持久写入大根卷。**
