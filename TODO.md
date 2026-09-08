@@ -84,8 +84,15 @@ Debian 固件。最终用户通过正常 `apt install` 写入同一个根文件�
 - [ ] 在不写 GPT 的条件下完成内核/initramfs RAM 启动，验证新布局识别和失败回退路径。
 - [x] 完成已知可用 m8 boot 的 `fastboot boot` 对照，以及“m9 initramfs + system 根分区”诊断启动；
   两者均恢复 RNDIS、ACM 和 ADB，证明内核、DTB、bootloader RAM 启动路径及增大的 initramfs 可用。
-- [x] 发现旧 initramfs 在 UDC 延迟探测完成前只检查一次 USB，导致 dm 探测停在救援 shell 时
-  没有 RNDIS/ACM；现已等待 UDC，并要求 `usb0` 与 `ttyGS0` 同时出现，否则 fail closed。
+- [x] 发现旧 initramfs 在 UDC 延迟探测完成前只检查一次 USB；已增加最多 60 秒 UDC 等待，
+  并要求 `usb0` 与 `ttyGS0` 同时出现，否则 fail closed。该修复已通过静态和可复现构建检查，
+  但尚未通过救援运行态验收。
+- [x] 真机执行修复版只读 probe（SHA256 `d99dd8aa94482da44f0cd90be21472101dec1202cef0532ccf0dbea28fc87b0c`）；
+  Fastboot 成功装载镜像且未执行分区操作，但 120 秒内没有 RNDIS/ACM 或其他 USB 重新枚举，
+  因此“仅等待 UDC 即可修复”被实测否定，继续禁止刷写。
+- [x] 生成严格 A/B RAM 镜像：新 initramfs + `root=system` 控制镜像、旧 initramfs + dm probe
+  镜像，以及 USB 建立后、任何 dm 命令前停留的 `ufi210.pre_dm_rescue=1` 诊断镜像。
+- [ ] 完成 A/B 控制和 pre-dm ACM 分步探测，区分 initramfs USB 回归与 device-mapper 路径故障。
 - [ ] 使用修复后的正式 `boot-debian-large-rootfs-dm-probe.img` 完成只读 dm-linear 真机探测；
   该步骤通过前继续禁止写入 system、cache、userdata 和 boot。
 - [x] 离线模拟错误磁盘容量、错误 GPT CRC、缺失备份、错误 manifest、镜像哈希错误和镜像截断，
