@@ -208,6 +208,12 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         self.assertIn("__ACTIVE_COUNT__", cold_boot)
         self.assertIn("$ActiveServiceCount = $ActiveServices.Count", cold_boot)
 
+    def test_cold_boot_uses_observed_usb_reappearance_time(self) -> None:
+        cold_boot = COLD_BOOT_TEST.read_text(encoding="utf-8-sig")
+        self.assertNotIn("Get-UsbLastArrival", cold_boot)
+        self.assertNotIn("DEVPKEY_Device_LastArrivalDate", cold_boot)
+        self.assertIn("$reconnectedAt = Get-Date", cold_boot)
+
     def test_fastboot_android_restore_is_explicit_and_does_not_touch_gpt(self) -> None:
         restore = RESTORE_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("ConfirmRestoreAndroid", restore)

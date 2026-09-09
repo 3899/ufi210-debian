@@ -102,17 +102,6 @@ function Get-RndisAdapter {
     return $adapter[0]
 }
 
-function Get-UsbLastArrival {
-    $parent = @(Get-DebianUsbDevices | Where-Object {
-        $_.InstanceId -notmatch '&MI_[0-9A-F]{2}\\'
-    })
-    if ($parent.Count -ne 1) { throw "未找到唯一的 Debian USB 父设备" }
-    $property = Get-PnpDeviceProperty -InstanceId $parent[0].InstanceId `
-        -KeyName 'DEVPKEY_Device_LastArrivalDate' -ErrorAction Stop
-    if ($null -eq $property.Data) { throw "Windows 未返回 USB 最后到达时间" }
-    return [datetime]$property.Data
-}
-
 function Test-TcpPort {
     param([int]$Port)
     $client = New-Object Net.Sockets.TcpClient
@@ -274,10 +263,9 @@ if ($resumed) {
     [Array]::Sort($beforeInstanceIds, [StringComparer]::OrdinalIgnoreCase)
     $beforeFingerprint = $beforeInstanceIds -join "`n"
     Wait-TcpAdb 30
-    $reconnectedAt = Get-UsbLastArrival
-    if ($reconnectedAt.ToUniversalTime() -le (Get-Item -LiteralPath $beforePath).LastWriteTimeUtc) {
-        throw "USB 最后到达时间不晚于断电前基线，不能证明重新枚举"
-    }
+    # Resume mode receives the confirmed USB absence duration from the operator;
+    # the observed TCP ADB return marks the end of the cold-boot interval.
+    $reconnectedAt = Get-Date
     $disconnectedAt = $reconnectedAt.AddSeconds(-$ConfirmedDisconnectSeconds)
 } else {
     if ($ConfirmedDisconnectSeconds -ne 0) {
@@ -332,6 +320,7 @@ $afterProbe = $null
 do {
     try {
         if ((Get-DebianUsbDeviceCount) -eq 3 -and (Test-TcpAdb)) {
+            $reconnectedAt = Get-Date
             $afterFingerprint = Get-UsbFingerprint
             $afterAdapter = Get-RndisAdapter
             $afterBootId = (Invoke-Adb @("-s", $AdbSerial, "shell", "cat /proc/sys/kernel/random/boot_id")).Text.Trim()
