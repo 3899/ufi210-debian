@@ -13,6 +13,7 @@ PUBLIC_PACKAGE = Path(__file__).with_name("package_public_release_candidate.sh")
 PACKAGE_SCRIPT = Path(__file__).with_name("package_release_candidate.sh")
 AUDIT_SCRIPT = Path(__file__).with_name("audit_public_release.sh")
 RESTORE_SCRIPT = Path(__file__).with_name("restore_android_fastboot.ps1")
+COLD_BOOT_TEST = Path(__file__).with_name("test_debian_cold_boot.ps1")
 USB_ADB_EXPERIMENT = (
     Path(__file__).parents[1]
     / "patches/rootfs/usr/sbin/zu02-usb-adb-experiment"
@@ -199,6 +200,13 @@ class LargeRootfsLayoutTests(unittest.TestCase):
         self.assertNotIn("WantedBy=", experiment)
         self.assertIn("USB\\VID_18D1&PID_D002", host_test)
         self.assertIn("$TcpSerial = '192.168.68.1:5555'", host_test)
+
+    def test_cold_boot_probe_waits_for_all_services_and_handles_empty_usb_query(self) -> None:
+        cold_boot = COLD_BOOT_TEST.read_text(encoding="utf-8-sig")
+        self.assertIn("[object[]]$devices = @(", cold_boot)
+        self.assertIn("for _ in $(seq 1 60); do", cold_boot)
+        self.assertIn("__ACTIVE_COUNT__", cold_boot)
+        self.assertIn("$ActiveServiceCount = $ActiveServices.Count", cold_boot)
 
     def test_fastboot_android_restore_is_explicit_and_does_not_touch_gpt(self) -> None:
         restore = RESTORE_SCRIPT.read_text(encoding="utf-8")

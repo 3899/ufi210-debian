@@ -27,6 +27,7 @@ $ActiveServices = @(
     "ufi210-modem-time-sync",
     "fstrim.timer"
 )
+$ActiveServiceCount = $ActiveServices.Count
 
 if (-not (Test-Path -LiteralPath $Adb -PathType Leaf)) {
     $command = Get-Command adb.exe -ErrorAction SilentlyContinue
@@ -68,9 +69,14 @@ function Read-Manifest {
 }
 
 function Get-DebianUsbDevices {
-    return @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
+    [object[]]$devices = @(Get-PnpDevice -PresentOnly -ErrorAction SilentlyContinue | Where-Object {
         $_.InstanceId -match '^USB\\VID_18D1&PID_D001'
     } | Sort-Object InstanceId)
+    return $devices
+}
+
+function Get-DebianUsbDeviceCount {
+    return @(Get-DebianUsbDevices).Count
 }
 
 function Get-UsbFingerprint {
@@ -160,7 +166,13 @@ printf 'DM_LINES='; dmsetup table ufi210-root | wc -l
 printf 'FSTRIM_ENABLED='; systemctl is-enabled fstrim.timer
 printf 'KERNEL='; uname -r
 printf 'FAILED='; systemctl --failed --no-legend --plain | wc -l
-printf 'ACTIVE='; systemctl is-active __SERVICES__ | grep -c '^active$'
+active=0
+for _ in $(seq 1 60); do
+    active=$(systemctl is-active __SERVICES__ | grep -c '^active$' || true)
+    if [ "$active" -eq __ACTIVE_COUNT__ ]; then break; fi
+    sleep 1
+done
+printf 'ACTIVE=%s\n' "$active"
 printf 'UDC='; cat /sys/kernel/config/usb_gadget/g1/UDC
 printf 'USB_PID='; cat /sys/kernel/config/usb_gadget/g1/idProduct
 printf 'TCP_ADB='; ss -lnt | grep -q ':5555 ' && echo listening
@@ -174,6 +186,7 @@ test ! -e /dev/usb-ffs/adb
 printf 'BOOT_SHA256='; head -c __BOOT_BYTES__ /dev/mmcblk0p20 | sha256sum | cut -d' ' -f1
 '@
     $command = $command.Replace('__SERVICES__', $serviceList)
+    $command = $command.Replace('__ACTIVE_COUNT__', $ActiveServiceCount.ToString())
     $command = $command.Replace('__BOOT_BYTES__', $Manifest.boot_image_bytes)
     return Invoke-Adb @("-s", $AdbSerial, "shell", $command)
 }
@@ -293,16 +306,16 @@ if ($resumed) {
     Write-Host "监控已就绪：请将设备完全断电至少 15 秒，然后重新插入 USB。"
     $disconnectDeadline = (Get-Date).AddSeconds($DisconnectTimeoutSeconds)
     do {
-        if ((Get-DebianUsbDevices).Count -eq 0) { break }
+        if ((Get-DebianUsbDeviceCount) -eq 0) { break }
         Start-Sleep -Milliseconds 250
     } while ((Get-Date) -lt $disconnectDeadline)
-    if ((Get-DebianUsbDevices).Count -ne 0) {
+    if ((Get-DebianUsbDeviceCount) -ne 0) {
         throw "未在 $DisconnectTimeoutSeconds 秒内检测到设备物理断开"
     }
     $disconnectedAt = Get-Date
     $minimumPowerOffDeadline = $disconnectedAt.AddSeconds(15)
     do {
-        if ((Get-DebianUsbDevices).Count -ne 0) {
+        if ((Get-DebianUsbDeviceCount) -ne 0) {
             throw "设备在 USB 缺席满 15 秒前重新插入，不满足冷启动验收条件"
         }
         Start-Sleep -Milliseconds 250
@@ -318,7 +331,7 @@ $afterBootId = $null
 $afterProbe = $null
 do {
     try {
-        if ((Get-DebianUsbDevices).Count -eq 3 -and (Test-TcpAdb)) {
+        if ((Get-DebianUsbDeviceCount) -eq 3 -and (Test-TcpAdb)) {
             $afterFingerprint = Get-UsbFingerprint
             $afterAdapter = Get-RndisAdapter
             $afterBootId = (Invoke-Adb @("-s", $AdbSerial, "shell", "cat /proc/sys/kernel/random/boot_id")).Text.Trim()
