@@ -90,6 +90,7 @@ QCDT_BUILD_SCRIPT="$PROJECT_ROOT/scripts/build_stock_qcdt.py"
 INITRAMFS_INIT="$PROJECT_ROOT/patches/initramfs/init-debian.sh"
 USB_GADGET_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-gadget"
 USB_WATCHDOG_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-watchdog"
+USB_ADB_EXPERIMENT_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-adb-experiment"
 WCNSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wcnss-start"
 MPSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-mpss-start"
 MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-prepare"
@@ -184,7 +185,8 @@ for command_name in arm-linux-gnueabihf-gcc awk cat chroot dd debootstrap debugf
 done
 for required in "$KERNEL" "$DTB" "$MODULES" "$INITRAMFS_BUILD_SCRIPT" "$INODE_TIME_TOOL" "$INITRAMFS_INIT" \
     "$QCDT_BUILD_SCRIPT" \
-    "$USB_GADGET_SCRIPT" "$USB_WATCHDOG_SCRIPT" "$WCNSS_START_SCRIPT" "$MPSS_START_SCRIPT" \
+    "$USB_GADGET_SCRIPT" "$USB_WATCHDOG_SCRIPT" "$USB_ADB_EXPERIMENT_SCRIPT" \
+    "$WCNSS_START_SCRIPT" "$MPSS_START_SCRIPT" \
     "$MODEM_PREPARE_SCRIPT" "$MODEM_REGISTER_SCRIPT" "$WWAN_IP_SCRIPT" \
     "$NMTUI_WRAPPER" "$REBOOT_COMPAT_SOURCE" "$WIFI_AP_PROFILE" "$USB_MANAGEMENT_CONF" "$WIFI_MAC_CONF" \
     "$WCNSS_NV" "$REFERENCE_BOOT"; do
@@ -228,6 +230,7 @@ qcdt_build_script_sha256="$(sha256sum "$QCDT_BUILD_SCRIPT" | awk '{print $1}')"
 initramfs_init_sha256="$(sha256sum "$INITRAMFS_INIT" | awk '{print $1}')"
 usb_gadget_script_sha256="$(sha256sum "$USB_GADGET_SCRIPT" | awk '{print $1}')"
 usb_watchdog_script_sha256="$(sha256sum "$USB_WATCHDOG_SCRIPT" | awk '{print $1}')"
+usb_adb_experiment_script_sha256="$(sha256sum "$USB_ADB_EXPERIMENT_SCRIPT" | awk '{print $1}')"
 wcnss_start_script_sha256="$(sha256sum "$WCNSS_START_SCRIPT" | awk '{print $1}')"
 mpss_start_script_sha256="$(sha256sum "$MPSS_START_SCRIPT" | awk '{print $1}')"
 modem_prepare_script_sha256="$(sha256sum "$MODEM_PREPARE_SCRIPT" | awk '{print $1}')"
@@ -280,6 +283,7 @@ if [[ "$FORCE" != "1" && "$rootfs_artifacts_present" == 1 \
     && grep -qx "initramfs_init_sha256=$initramfs_init_sha256" "$MANIFEST" \
     && grep -qx "usb_gadget_script_sha256=$usb_gadget_script_sha256" "$MANIFEST" \
     && grep -qx "usb_watchdog_script_sha256=$usb_watchdog_script_sha256" "$MANIFEST" \
+    && grep -qx "usb_adb_experiment_script_sha256=$usb_adb_experiment_script_sha256" "$MANIFEST" \
     && grep -qx "wcnss_start_script_sha256=$wcnss_start_script_sha256" "$MANIFEST" \
     && grep -qx "mpss_start_script_sha256=$mpss_start_script_sha256" "$MANIFEST" \
     && grep -qx "modem_prepare_script_sha256=$modem_prepare_script_sha256" "$MANIFEST" \
@@ -540,6 +544,7 @@ fi
 install -d -m 1777 "$ROOTFS/data/local/tmp"
 install -m 0755 "$USB_GADGET_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-gadget"
 install -m 0755 "$USB_WATCHDOG_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-watchdog"
+install -m 0755 "$USB_ADB_EXPERIMENT_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-adb-experiment"
 install -m 0755 "$WCNSS_START_SCRIPT" "$ROOTFS/usr/sbin/zu02-wcnss-start"
 install -m 0755 "$MPSS_START_SCRIPT" "$ROOTFS/usr/sbin/zu02-mpss-start"
 install -m 0755 "$MODEM_PREPARE_SCRIPT" "$ROOTFS/usr/sbin/zu02-modem-prepare"
@@ -1131,6 +1136,7 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'regulatory_db_signature_sha256=%s\n' "$regulatory_db_signature_sha256"
     printf 'usb_gadget_script_sha256=%s\n' "$usb_gadget_script_sha256"
     printf 'usb_watchdog_script_sha256=%s\n' "$usb_watchdog_script_sha256"
+    printf 'usb_adb_experiment_script_sha256=%s\n' "$usb_adb_experiment_script_sha256"
     printf 'wcnss_start_script_sha256=%s\n' "$wcnss_start_script_sha256"
     printf 'mpss_start_script_sha256=%s\n' "$mpss_start_script_sha256"
     printf 'modem_prepare_script_sha256=%s\n' "$modem_prepare_script_sha256"
@@ -1207,6 +1213,10 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'device_ip=192.168.68.1\n'
     printf 'root_password=%s\n' "$ROOT_PASSWORD"
     printf 'adbd=tcp-5555\n'
+    printf 'usb_adb=opt-in-experimental-disabled\n'
+    printf 'usb_adb_experiment_modes=rndis-adb,acm-adb,rndis-acm-adb\n'
+    printf 'usb_adb_functionfs_mount=default\n'
+    printf 'usb_adb_experiment_product_id=0xD002\n'
     printf 'adbd_shell_tmpdir=/data/local/tmp\n'
     printf 'adbd_shell_tmpdir_storage=rootfs\n'
     printf 'fastboot_reboot_command=adb-shell-system-bin-reboot-bootloader\n'

@@ -13,6 +13,11 @@ PUBLIC_PACKAGE = Path(__file__).with_name("package_public_release_candidate.sh")
 PACKAGE_SCRIPT = Path(__file__).with_name("package_release_candidate.sh")
 AUDIT_SCRIPT = Path(__file__).with_name("audit_public_release.sh")
 RESTORE_SCRIPT = Path(__file__).with_name("restore_android_fastboot.ps1")
+USB_ADB_EXPERIMENT = (
+    Path(__file__).parents[1]
+    / "patches/rootfs/usr/sbin/zu02-usb-adb-experiment"
+)
+USB_ADB_TEST = Path(__file__).with_name("test_debian_usb_adb_experimental.ps1")
 SCRIPTS = Path(__file__).parent
 
 
@@ -175,6 +180,25 @@ class LargeRootfsLayoutTests(unittest.TestCase):
             "'adbd_shell_tmpdir_storage=rootfs'",
         ):
             self.assertIn(value, audit)
+
+    def test_usb_adb_is_opt_in_and_uses_a_separate_product_id(self) -> None:
+        build = BUILD.read_text(encoding="utf-8")
+        verify = VERIFY.read_text(encoding="utf-8")
+        experiment = USB_ADB_EXPERIMENT.read_text(encoding="utf-8")
+        host_test = USB_ADB_TEST.read_text(encoding="utf-8-sig")
+        self.assertIn("usb_adb=opt-in-experimental-disabled", build)
+        self.assertIn("usb_adb_experiment_product_id=0xD002", build)
+        self.assertIn("manifest_value usb_adb", verify)
+        self.assertIn('== "opt-in-experimental-disabled"', verify)
+        self.assertIn("manifest_value usb_adb_experiment_product_id", verify)
+        self.assertIn('== "0xD002"', verify)
+        self.assertIn("DEFAULT_PID=0xD001", experiment)
+        self.assertIn("EXPERIMENT_PID=0xD002", experiment)
+        self.assertIn("trap restore EXIT INT TERM HUP", experiment)
+        self.assertIn("mount -t functionfs adb /dev/usb-ffs/adb", experiment)
+        self.assertNotIn("WantedBy=", experiment)
+        self.assertIn("USB\\VID_18D1&PID_D002", host_test)
+        self.assertIn("$TcpSerial = '192.168.68.1:5555'", host_test)
 
     def test_fastboot_android_restore_is_explicit_and_does_not_touch_gpt(self) -> None:
         restore = RESTORE_SCRIPT.read_text(encoding="utf-8")

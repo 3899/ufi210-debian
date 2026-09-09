@@ -21,6 +21,7 @@ INITRAMFS="$OUT_DIR/initramfs-zu02-debian"
 QCDT="$OUT_DIR/qcdt-zu02-dw01.img"
 USB_GADGET_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-gadget"
 USB_WATCHDOG_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-watchdog"
+USB_ADB_EXPERIMENT_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-adb-experiment"
 WCNSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wcnss-start"
 MPSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-mpss-start"
 MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-prepare"
@@ -159,7 +160,8 @@ for required in "$BOOT_IMAGE" "$INITRAMFS" "$ROOTFS_TARBALL" "$PACKAGE_LIST" \
     "$MPSS_START_SCRIPT" "$MODEM_PREPARE_SCRIPT" "$MODEM_REGISTER_SCRIPT" "$WWAN_IP_SCRIPT" \
     "$NMTUI_WRAPPER" "$REBOOT_COMPAT_SOURCE" "$WIFI_AP_PROFILE" "$USB_MANAGEMENT_CONF" "$WIFI_MAC_CONF" \
     "$INITRAMFS_BUILD_SCRIPT" "$INODE_TIME_TOOL" \
-    "$INITRAMFS_INIT" "$QCDT_BUILD_SCRIPT" "$QCDT" "$USB_GADGET_SCRIPT" "$USB_WATCHDOG_SCRIPT" "$WCNSS_NV"; do
+    "$INITRAMFS_INIT" "$QCDT_BUILD_SCRIPT" "$QCDT" "$USB_GADGET_SCRIPT" "$USB_WATCHDOG_SCRIPT" \
+    "$USB_ADB_EXPERIMENT_SCRIPT" "$WCNSS_NV"; do
     [[ -s "$required" ]] || die "缺少产物：$required"
 done
 if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
@@ -336,6 +338,7 @@ check_sha256 initramfs_sha256 "$INITRAMFS"
 check_sha256 qcdt_sha256 "$QCDT"
 check_sha256 usb_gadget_script_sha256 "$USB_GADGET_SCRIPT"
 check_sha256 usb_watchdog_script_sha256 "$USB_WATCHDOG_SCRIPT"
+check_sha256 usb_adb_experiment_script_sha256 "$USB_ADB_EXPERIMENT_SCRIPT"
 check_sha256 wcnss_start_script_sha256 "$WCNSS_START_SCRIPT"
 check_sha256 mpss_start_script_sha256 "$MPSS_START_SCRIPT"
 check_sha256 modem_prepare_script_sha256 "$MODEM_PREPARE_SCRIPT"
@@ -369,6 +372,14 @@ mpss_firmware_sha256="$(
 grep -q '^exec switch_root /sysroot /sbin/init$' "$INITRAMFS_INIT" \
     || die "正式 initramfs 缺少自动 switch_root"
 [[ "$(manifest_value adbd)" == "tcp-5555" ]] || die "ADB 模式不匹配"
+[[ "$(manifest_value usb_adb)" == "opt-in-experimental-disabled" ]] \
+    || die "USB ADB 默认策略不匹配"
+[[ "$(manifest_value usb_adb_experiment_modes)" == "rndis-adb,acm-adb,rndis-acm-adb" ]] \
+    || die "USB ADB 实验模式不匹配"
+[[ "$(manifest_value usb_adb_functionfs_mount)" == "default" ]] \
+    || die "USB ADB FunctionFS 挂载策略不匹配"
+[[ "$(manifest_value usb_adb_experiment_product_id)" == "0xD002" ]] \
+    || die "USB ADB 独立实验 product ID 不匹配"
 [[ "$(manifest_value adb_tcp_endpoint)" == "192.168.68.1:5555" ]] || die "TCP ADB 地址不匹配"
 [[ "$(manifest_value usb_functions)" == "rndis-acm" ]] || die "USB 复合功能不匹配"
 [[ "$(manifest_value usb_product_id)" == "0xD001" ]] || die "USB product ID 不匹配"
@@ -490,7 +501,7 @@ for symbol in QCOM_WCNSS_PIL QCOM_WCNSS_CTRL WCN36XX CFG80211 MAC80211 RPMSG_QCO
         || die "内核未内建 CONFIG_${symbol}"
 done
 for symbol in QRTR QRTR_SMD WWAN QCOM_SYSMON QCOM_MDT_LOADER QCOM_RMTFS_MEM \
-    QCOM_SMEM QCOM_SMP2P QCOM_SMSM SYSCON_REBOOT_MODE FAT_FS VFAT_FS \
+    QCOM_SMEM QCOM_SMP2P QCOM_SMSM SYSCON_REBOOT_MODE USB_F_FS FAT_FS VFAT_FS \
     NLS_CODEPAGE_437 NLS_ISO8859_1; do
     grep -qx "CONFIG_${symbol}=y" "$KERNEL_DIR/config" \
         || die "内核未内建 CONFIG_${symbol}"
@@ -821,6 +832,7 @@ for required_path in \
     ./usr/sbin/zu02-mpss-start \
     ./usr/sbin/zu02-usb-gadget \
     ./usr/sbin/zu02-usb-watchdog \
+    ./usr/sbin/zu02-usb-adb-experiment \
     ./usr/sbin/zu02-usb-network \
     ./usr/sbin/zu02-wcnss-start \
     ./usr/lib/modules/7.0.0-msm8909/modules.dep; do
@@ -915,6 +927,26 @@ if grep -Eqi 'functionfs|ffs\.adb' <<<"$gadget_script"; then
 fi
 grep -q '^rebuild() {$' <<<"$gadget_script" || die "USB gadget 缺少完整强制重建路径"
 grep -q '^    rebuild) rebuild ;;$' <<<"$gadget_script" || die "USB gadget 未导出完整强制重建命令"
+adb_experiment_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-usb-adb-experiment)"
+grep -Fq 'mount -t functionfs adb /dev/usb-ffs/adb' <<<"$adb_experiment_script" \
+    || die "USB ADB 实验脚本未使用内核兼容的 FunctionFS 挂载"
+grep -Fq 'systemd-run' "$PROJECT_ROOT/scripts/test_debian_usb_adb_experimental.ps1" \
+    || die "USB ADB 宿主实验脚本未使用独立 systemd transient service"
+grep -q '^trap restore EXIT INT TERM HUP$' <<<"$adb_experiment_script" \
+    || die "USB ADB 实验脚本缺少异常自动恢复"
+grep -Fq 'systemctl start zu02-usb-watchdog.timer' <<<"$adb_experiment_script" \
+    || die "USB ADB 实验脚本缺少 watchdog 恢复"
+grep -Fq 'DEFAULT_PID=0xD001' <<<"$adb_experiment_script" \
+    || die "USB ADB 实验脚本未定义正式 product ID"
+grep -Fq 'EXPERIMENT_PID=0xD002' <<<"$adb_experiment_script" \
+    || die "USB ADB 实验脚本未使用独立实验 product ID"
+grep -Fq 'echo "$DEFAULT_PID" > "$G/idProduct"' <<<"$adb_experiment_script" \
+    || die "USB ADB 实验脚本未恢复固定 product ID"
+grep -Fq 'echo "$EXPERIMENT_PID" > "$G/idProduct"' <<<"$adb_experiment_script" \
+    || die "USB ADB 实验脚本未设置独立实验 product ID"
+if grep -Eq '^WantedBy=|systemctl enable|systemctl preset' <<<"$adb_experiment_script"; then
+    die "USB ADB 实验脚本不得自启"
+fi
 watchdog_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-usb-watchdog)"
 grep -q '^MIN_UNHEALTHY_SECONDS=5$' <<<"$watchdog_script" \
     || die "USB watchdog 连续异常阈值不匹配"

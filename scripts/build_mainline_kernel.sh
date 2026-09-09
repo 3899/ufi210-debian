@@ -139,6 +139,7 @@ config_tool="$SOURCE_DIR/scripts/config"
     --enable USB_CONFIGFS_ACM \
     --enable USB_CONFIGFS_NCM \
     --enable USB_CONFIGFS_RNDIS \
+    --enable USB_F_FS \
     --enable QCOM_WCNSS_PIL \
     --enable QCOM_WCNSS_CTRL \
     --enable WCN36XX \
@@ -166,7 +167,7 @@ make -C "$SOURCE_DIR" O="$OBJ_DIR" ARCH=arm CROSS_COMPILE="$CROSS_COMPILE" oldde
 
 grep -qx '# CONFIG_USB_G_SERIAL is not set' "$OBJ_DIR/.config" \
     || die "CONFIG_USB_G_SERIAL 未禁用"
-for symbol in USB_CONFIGFS USB_F_ACM USB_F_NCM USB_F_RNDIS; do
+for symbol in USB_CONFIGFS USB_F_ACM USB_F_NCM USB_F_RNDIS USB_F_FS; do
     grep -qx "CONFIG_${symbol}=y" "$OBJ_DIR/.config" \
         || die "CONFIG_${symbol} 没有内建为 y"
 done

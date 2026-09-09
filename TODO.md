@@ -258,6 +258,18 @@ Debian；`df /` 显示经审计的大根分区容量；APT 无需特殊路径即
 - [x] 最终候选完成 20 次 `adbd` 热重启；1413 个连续 RNDIS ping 零失败，USB gadget、
   RNDIS、SSH 和 ACM 均未中断，见
   `out/debian-system-device-test/adbd-restart-20260905-044801/`。
+- [x] 明确 USB FunctionFS ADB 与 TCP ADB 是独立传输；正式配置继续固定为已经回归验证的
+  `RNDIS + ACM`、PID `0xD001` 和仅允许 `usb0` 访问的 TCP ADB。
+- [x] 增加默认关闭的有限时长 USB ADB 实验工具；实验使用独立 PID `0xD002`，并由独立
+  systemd transient service 在超时、异常或信号退出后恢复正式 USB 配置。
+- [x] 实机确认 MSM8909 7.0.0 内核不接受 FunctionFS `no_disconnect` 挂载选项；实验工具改用
+  内核兼容的默认 FunctionFS 挂载，正式 TCP ADB 和恢复路径不变。
+- [x] 实机验证普通 FunctionFS 挂载可以冷枚举 USB ADB；`ACM + USB ADB` 的 ADB 与串口
+  同时枚举，实验超时后能自动恢复正式 RNDIS + ACM + TCP ADB。
+- [x] 实机验证 `RNDIS + USB ADB` 下 Windows RNDIS 报错、TCP ADB 回退不可用，以及
+  `adbd` 热重启后 USB ADB 消失；因此 USB ADB 继续保持默认关闭。
+- [ ] 只有在后续内核/gadget 热重启问题修复并通过独立冷启动回归后，才重新评估默认启用
+  FunctionFS ADB。
 - [x] 最终候选完成 10 分钟四核受控负载；最高 76°C，cooling state 实际升至 7，见
   `out/debian-system-device-test/thermal-20260905-052207/`。
 - [x] system/data 候选完成 20 分钟综合监控，2427 个 RNDIS ping 零失败，最高 58°C，见

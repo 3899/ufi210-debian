@@ -186,6 +186,10 @@ audit_binary_tree() {
         'device_ip=192.168.68.1' \
         'root_password=simadmin' \
         'adbd=tcp-5555' \
+        'usb_adb=opt-in-experimental-disabled' \
+        'usb_adb_experiment_modes=rndis-adb,acm-adb,rndis-acm-adb' \
+        'usb_adb_functionfs_mount=default' \
+        'usb_adb_experiment_product_id=0xD002' \
         'fastboot_reboot_command=adb-shell-system-bin-reboot-bootloader' \
         'adb_tcp_endpoint=192.168.68.1:5555' \
         'usb_functions=rndis-acm' \

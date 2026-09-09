@@ -1,0 +1,114 @@
+#!/bin/sh
+set -eu
+
+G=/sys/kernel/config/usb_gadget/g1
+C=$G/configs/c.1
+ADB=/usr/lib/android-sdk/platform-tools/adbd
+LOG=/var/log/zu02-usb-adb-experiment.log
+MODE=${1:-}
+DURATION=${2:-120}
+UDC=
+LOCK=/run/zu02-usb-adb-experiment.lock
+EXPERIMENT_ADBD=zu02-usb-adbd-experiment.service
+EXPERIMENT_PID=0xD002
+DEFAULT_PID=0xD001
+
+log() {
+    printf '[%s] %s\n' "$(date -Iseconds)" "$*" | tee -a "$LOG" >&2
+}
+
+die() {
+    log "error: $*"
+    exit 1
+}
+
+case "$MODE" in
+    rndis-adb|acm-adb|rndis-acm-adb) ;;
+    *) die "usage: $0 rndis-adb|acm-adb|rndis-acm-adb [seconds]" ;;
+esac
+case "$DURATION" in
+    ''|*[!0-9]*) die 'duration must be a non-negative integer' ;;
+esac
+[ "$(id -u)" -eq 0 ] || die 'must run as root'
+[ -x "$ADB" ] || die "missing $ADB"
+[ -e "$G/UDC" ] || die 'gadget does not exist'
+UDC="$(cat "$G/UDC")"
+[ -n "$UDC" ] || die 'gadget is not active'
+mkdir "$LOCK" 2>/dev/null || die 'another USB ADB experiment is active'
+
+restore() {
+    trap - EXIT INT TERM HUP
+    set +e
+    log 'restoring fixed RNDIS + ACM gadget'
+    printf '\n' > "$G/UDC" 2>/dev/null
+    systemctl stop "$EXPERIMENT_ADBD" 2>/dev/null
+    systemctl stop adbd.service 2>/dev/null
+    rm -f "$C/ffs.adb" "$C/rndis.usb0" "$C/acm.usb0"
+    umount /dev/usb-ffs/adb 2>/dev/null
+    rmdir "$G/functions/ffs.adb" /dev/usb-ffs/adb 2>/dev/null
+    (
+        cd "$G"
+        ln -s functions/rndis.usb0 configs/c.1/rndis.usb0
+        ln -s functions/acm.usb0 configs/c.1/acm.usb0
+    )
+    echo "$DEFAULT_PID" > "$G/idProduct"
+    echo 'RNDIS + ACM' > "$C/strings/0x409/configuration"
+    echo "$UDC" > "$G/UDC"
+    systemctl start adbd.service
+    systemctl restart zu02-usb-network.service dnsmasq.service
+    systemctl start zu02-usb-watchdog.timer
+    rmdir "$LOCK" 2>/dev/null
+    log 'fixed gadget restored'
+}
+trap restore EXIT INT TERM HUP
+
+log "starting opt-in mode=$MODE duration=${DURATION}s"
+systemctl stop zu02-usb-watchdog.timer adbd.service
+printf '\n' > "$G/UDC"
+rm -f "$C/ffs.adb" "$C/rndis.usb0" "$C/acm.usb0"
+umount /dev/usb-ffs/adb 2>/dev/null || true
+rmdir "$G/functions/ffs.adb" /dev/usb-ffs/adb 2>/dev/null || true
+mkdir -p "$G/functions/ffs.adb" /dev/usb-ffs/adb
+mount -t functionfs adb /dev/usb-ffs/adb \
+    || die 'FunctionFS mount failed'
+
+(
+    cd "$G"
+    case "$MODE" in
+        rndis-adb)
+            ln -s functions/rndis.usb0 configs/c.1/rndis.usb0
+            ln -s functions/ffs.adb configs/c.1/ffs.adb
+            ;;
+        acm-adb)
+            ln -s functions/acm.usb0 configs/c.1/acm.usb0
+            ln -s functions/ffs.adb configs/c.1/ffs.adb
+            ;;
+        rndis-acm-adb)
+            ln -s functions/rndis.usb0 configs/c.1/rndis.usb0
+            ln -s functions/ffs.adb configs/c.1/ffs.adb
+            ln -s functions/acm.usb0 configs/c.1/acm.usb0
+            ;;
+    esac
+)
+echo "$EXPERIMENT_PID" > "$G/idProduct"
+echo "${MODE}" > "$C/strings/0x409/configuration"
+
+systemd-run --unit="${EXPERIMENT_ADBD%.service}" --collect --no-block \
+    --service-type=notify \
+    --property=Environment=ADBD_PORT=5555 \
+    --property=Restart=on-failure \
+    --property=RestartSec=2 \
+    "$ADB" || die 'failed to start experimental adbd service'
+for _ in $(seq 1 100); do
+    [ -e /dev/usb-ffs/adb/ep1 ] && break
+    sleep 0.1
+done
+[ -e /dev/usb-ffs/adb/ep1 ] || die 'adbd did not publish FunctionFS endpoints'
+systemctl is-active --quiet "$EXPERIMENT_ADBD" \
+    || die 'experimental adbd service is not active'
+echo "$UDC" > "$G/UDC" || die 'failed to activate gadget'
+log 'gadget activated'
+find "$C" -maxdepth 1 -type l -printf 'function=%f\n' | sort | tee -a "$LOG"
+mount | grep -F '/dev/usb-ffs/adb' | tee -a "$LOG"
+sleep "$DURATION"
+log 'duration completed'
