@@ -24,6 +24,7 @@ $Adb = Join-Path $ProjectRoot "adb.exe"
 $ExpectedDiskSectors = 7569408L
 $ExpectedSectorBytes = 512L
 $ExpectedPhysicalPartitions = 3
+$ExpectedTargetName = "8909"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
 
 function Write-Utf8File {
@@ -134,12 +135,29 @@ foreach ($expected in @(
         throw "eMMC 只读探测缺少证据：$expected"
     }
 }
-if ($storageEvidence -match '(?i)sendxml|<program\b|<erase\b|firmwarewrite') {
-    throw "只读探测日志出现写入命令，停止并保留现场"
+# fh_loader 的说明日志会把支持的 TAG 名称打印成“<erase>”，不能据此
+# 判断是否真的向目标发送了写入 XML；只检查每个 HOST TO TARGET XML 块。
+$hostToTargetBlocks = [regex]::Matches(
+    $storageEvidence,
+    '(?is)HOST TO TARGET\s*-->.*?(?=HOST TO TARGET|$)'
+)
+$sentWriteXml = '(?is)<(?:(?:program)|(?:erase)|(?:patch)|(?:sendimage)|(?:firmwarewrite)|(?:fixgpt))\b'
+foreach ($block in $hostToTargetBlocks) {
+    if ($block.Value -match $sentWriteXml) {
+        throw "只读探测日志出现发往目标的写入 XML，停止并保留现场"
+    }
 }
 
 $targetName = "unknown"
 if ($storageEvidence -match 'TargetName="([^"]+)"') { $targetName = $Matches[1] }
+if ($targetName -ne $ExpectedTargetName) {
+    throw "9008 目标型号不匹配：收到 TargetName=$targetName，预期 $ExpectedTargetName"
+}
+
+if ($storageEvidence -match '(?is)<data>\s*<(?:(?:program)|(?:erase)|(?:patch)|(?:sendimage)|(?:firmwarewrite)|(?:fixgpt))\b') {
+    throw "只读探测日志出现发往目标的写入 XML，停止并保留现场"
+}
+
 $manifest = @(
     "probe_result=passed",
     "probe_mode=sahara-and-getstorageinfo-only",
