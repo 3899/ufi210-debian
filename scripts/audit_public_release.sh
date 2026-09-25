@@ -113,8 +113,8 @@ audit_binary_tree() {
     while IFS= read -r -d '' path; do
         rel="${path#"$TARGET"/}"
         case "$rel" in
-            LICENSE|LICENSING.md|README.md|RELEASE-NOTES.md|INSTALL-MANIFEST.txt|SHA256SUMS|install.bat|enter-fastboot.bat) ;;
-            debian-bookworm-armhf-large-rootfs-system.img|debian-bookworm-armhf-large-rootfs-cache.img|debian-bookworm-armhf-large-rootfs-userdata.img|boot-debian-large-rootfs.img) ;;
+            LICENSE|LICENSING.md|README.md|RELEASE-NOTES.md|INSTALL-MANIFEST.txt|SHA256SUMS|install.bat|enter-fastboot.bat|flash.bat|flash.sh) ;;
+            system.img|cache.img|userdata.img|boot.img|debian-bookworm-armhf-large-rootfs-system.img|debian-bookworm-armhf-large-rootfs-cache.img|debian-bookworm-armhf-large-rootfs-userdata.img|boot-debian-large-rootfs.img) ;;
             LICENSES/MIT.txt|LICENSES/GPL-2.0-only.txt) ;;
             scripts/install_debian_large_rootfs.ps1|scripts/enter_fastboot.ps1) ;;
             *) die "用户固件包出现白名单外文件：$rel" ;;
@@ -130,13 +130,21 @@ audit_binary_tree() {
     (( count > 0 )) || die "用户固件包为空"
     for required in \
         README.md RELEASE-NOTES.md INSTALL-MANIFEST.txt SHA256SUMS \
-        LICENSE LICENSING.md LICENSES/MIT.txt LICENSES/GPL-2.0-only.txt \
-        install.bat enter-fastboot.bat scripts/install_debian_large_rootfs.ps1 scripts/enter_fastboot.ps1 \
-        debian-bookworm-armhf-large-rootfs-system.img \
-        debian-bookworm-armhf-large-rootfs-cache.img \
-        debian-bookworm-armhf-large-rootfs-userdata.img boot-debian-large-rootfs.img; do
+        LICENSE LICENSING.md LICENSES/MIT.txt LICENSES/GPL-2.0-only.txt; do
         [[ -s "$TARGET/$required" ]] || die "用户固件包缺少：$required"
     done
+    if [[ -s "$TARGET/system.img" ]]; then
+        for required in system.img cache.img userdata.img boot.img; do
+            [[ -s "$TARGET/$required" ]] || die "用户固件包缺少：$required"
+        done
+    else
+        for required in \
+            debian-bookworm-armhf-large-rootfs-system.img \
+            debian-bookworm-armhf-large-rootfs-cache.img \
+            debian-bookworm-armhf-large-rootfs-userdata.img boot-debian-large-rootfs.img; do
+            [[ -s "$TARGET/$required" ]] || die "用户固件包缺少：$required"
+        done
+    fi
 
     manifest="$TARGET/INSTALL-MANIFEST.txt"
     for field in \
@@ -211,16 +219,14 @@ audit_binary_tree() {
         'qcdt_unique_dtb_count=1' \
         'closed_firmware=device-modem-persist-read-only' \
         'device_calibration=not-packaged' \
-        'platform_tools=required-not-bundled' \
-        'rootfs_system_image=debian-bookworm-armhf-large-rootfs-system.img' \
-        'rootfs_system_image_bytes=1288491008' \
-        'rootfs_cache_image=debian-bookworm-armhf-large-rootfs-cache.img' \
-        'rootfs_cache_image_bytes=268435456' \
-        'rootfs_userdata_image=debian-bookworm-armhf-large-rootfs-userdata.img' \
-        'rootfs_userdata_image_bytes=1928310784' \
-        'boot_image=boot-debian-large-rootfs.img'; do
+        'platform_tools=required-not-bundled'; do
         grep -Fqx "$field" "$manifest" || die "安装清单缺少或不匹配：$field"
     done
+
+    rootfs_system_image="$(sed -n 's/^rootfs_system_image=//p' "$manifest")"
+    rootfs_cache_image="$(sed -n 's/^rootfs_cache_image=//p' "$manifest")"
+    rootfs_userdata_image="$(sed -n 's/^rootfs_userdata_image=//p' "$manifest")"
+    boot_image="$(sed -n 's/^boot_image=//p' "$manifest")"
 
     rootfs_system_hash="$(sed -n 's/^rootfs_system_image_sha256=//p' "$manifest")"
     rootfs_cache_hash="$(sed -n 's/^rootfs_cache_image_sha256=//p' "$manifest")"
@@ -233,19 +239,19 @@ audit_binary_tree() {
         && "$rootfs_userdata_hash" =~ ^[0-9a-f]{64}$ \
         && "$boot_hash" =~ ^[0-9a-f]{64}$ ]] \
         || die "安装清单镜像哈希格式错误"
-    [[ "$rootfs_system_hash" == "$(sha256sum "$TARGET/debian-bookworm-armhf-large-rootfs-system.img" | awk '{print $1}')" ]] \
+    [[ "$rootfs_system_hash" == "$(sha256sum "$TARGET/$rootfs_system_image" | awk '{print $1}')" ]] \
         || die "安装清单 rootfs system 分段哈希不匹配"
-    [[ "$rootfs_cache_hash" == "$(sha256sum "$TARGET/debian-bookworm-armhf-large-rootfs-cache.img" | awk '{print $1}')" ]] \
+    [[ "$rootfs_cache_hash" == "$(sha256sum "$TARGET/$rootfs_cache_image" | awk '{print $1}')" ]] \
         || die "安装清单 rootfs cache 分段哈希不匹配"
-    [[ "$rootfs_userdata_hash" == "$(sha256sum "$TARGET/debian-bookworm-armhf-large-rootfs-userdata.img" | awk '{print $1}')" ]] \
+    [[ "$rootfs_userdata_hash" == "$(sha256sum "$TARGET/$rootfs_userdata_image" | awk '{print $1}')" ]] \
         || die "安装清单 rootfs userdata 分段哈希不匹配"
     [[ "$rootfs_hash" == "$(cat \
-        "$TARGET/debian-bookworm-armhf-large-rootfs-system.img" \
-        "$TARGET/debian-bookworm-armhf-large-rootfs-cache.img" \
-        "$TARGET/debian-bookworm-armhf-large-rootfs-userdata.img" \
+        "$TARGET/$rootfs_system_image" \
+        "$TARGET/$rootfs_cache_image" \
+        "$TARGET/$rootfs_userdata_image" \
         | sha256sum | awk '{print $1}')" ]] \
         || die "安装清单完整逻辑 rootfs 哈希不匹配"
-    [[ "$boot_hash" == "$(sha256sum "$TARGET/boot-debian-large-rootfs.img" | awk '{print $1}')" ]] \
+    [[ "$boot_hash" == "$(sha256sum "$TARGET/$boot_image" | awk '{print $1}')" ]] \
         || die "安装清单 boot 哈希不匹配"
 
     if grep -RIE 'repository=|wcnss_nv_sha256=|kernel_commit=|source_date_epoch=' "$TARGET"; then

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -14,9 +15,25 @@ AUDITOR = PROJECT_ROOT / "scripts/audit_public_release.sh"
 
 
 class PublicReleaseAuditTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if os.name == "nt":
+            raise unittest.SkipTest("POSIX bash audit tests require Linux environment")
+
     def run_source_audit(
         self, content: str, environment: dict[str, str] | None = None
     ) -> subprocess.CompletedProcess[str]:
+        bash_cmd = shutil.which("bash")
+        if not bash_cmd and os.name == "nt":
+            for candidate in (
+                r"C:\Program Files\Git\bin\bash.exe",
+                r"C:\Program Files\Git\usr\bin\bash.exe",
+            ):
+                if os.path.exists(candidate):
+                    bash_cmd = candidate
+                    break
+        if not bash_cmd:
+            raise unittest.SkipTest("bash is not available on this platform")
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary)
             (target / "README.md").write_text(content, encoding="utf-8")
@@ -24,10 +41,11 @@ class PublicReleaseAuditTests(unittest.TestCase):
             if environment:
                 env.update(environment)
             return subprocess.run(
-                ["bash", str(AUDITOR), "source", str(target)],
+                [bash_cmd, str(AUDITOR), "source", str(target)],
                 cwd=PROJECT_ROOT,
                 env=env,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 check=False,

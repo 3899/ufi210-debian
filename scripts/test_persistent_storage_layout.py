@@ -85,16 +85,16 @@ class PersistentStorageLayoutTests(unittest.TestCase):
             encoding="utf-8"
         )
         expected = (
-            'LARGE_ROOTFS_SIZE=3485240832',
-            'LARGE_ROOTFS_FILESYSTEM_SIZE=3485237248',
+            'LARGE_ROOTFS_SIZE=3401351168',
+            'LARGE_ROOTFS_FILESYSTEM_SIZE=3401351168',
             'ROOTFS_UUID="89090000-0000-4000-8000-000000000031"',
             'ROOTFS_HASH_SEED="89090000-0000-4000-8000-000000000032"',
             'ROOTFS_LABEL="ufi210-root"',
             'ROOTFS_DEVICE="/dev/mapper/ufi210-root"',
             'ROOTFS_AUTO_GROW=disabled',
-            'ROOTFS_SYSTEM_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-system.img"',
-            'ROOTFS_CACHE_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-cache.img"',
-            'ROOTFS_USERDATA_IMAGE="$OUT_DIR/debian-${SUITE}-armhf-large-rootfs-userdata.img"',
+            'ROOTFS_SYSTEM_IMAGE="$OUT_DIR/system.img"',
+            'ROOTFS_CACHE_IMAGE="$OUT_DIR/cache.img"',
+            'ROOTFS_USERDATA_IMAGE="$OUT_DIR/userdata.img"',
             'rootfs_segments=complete-prebuilt-filesystem',
             'install -d -m 1777 "$ROOTFS/data/local/tmp"',
             "printf 'data_mount=none\\n'",

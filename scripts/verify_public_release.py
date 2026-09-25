@@ -245,7 +245,7 @@ def verify_release(project_root: Path, out_root: Path, version: str) -> None:
 
     names = {
         "source": f"ufi210-debian-source-{version}",
-        "binary": f"ufi210-debian-zu02-dw01-{version}",
+        "binary": f"ufi210-debian-{version}",
         "debian": f"ufi210-debian-debian-sources-{version}",
         "kernel": f"ufi210-debian-kernel-source-{version}",
     }
@@ -326,13 +326,26 @@ def verify_release(project_root: Path, out_root: Path, version: str) -> None:
         verify_kernel_tree(kernel_root, project_root)
 
         built_root = project_root / "out/mainline/debian-large-rootfs"
-        for image_name in (
-            "debian-bookworm-armhf-large-rootfs-system.img",
-            "debian-bookworm-armhf-large-rootfs-cache.img",
-            "debian-bookworm-armhf-large-rootfs-userdata.img",
-            "boot-debian-large-rootfs.img",
-        ):
-            if sha256_file(binary_root / image_name) != sha256_file(built_root / image_name):
+        if (binary_root / "system.img").exists():
+            image_names = ("system.img", "cache.img", "userdata.img", "boot.img")
+        else:
+            image_names = (
+                "debian-bookworm-armhf-large-rootfs-system.img",
+                "debian-bookworm-armhf-large-rootfs-cache.img",
+                "debian-bookworm-armhf-large-rootfs-userdata.img",
+                "boot-debian-large-rootfs.img",
+            )
+        for image_name in image_names:
+            src_img = built_root / image_name
+            if not src_img.exists() and image_name == "system.img":
+                src_img = built_root / "debian-bookworm-armhf-large-rootfs-system.img"
+            elif not src_img.exists() and image_name == "cache.img":
+                src_img = built_root / "debian-bookworm-armhf-large-rootfs-cache.img"
+            elif not src_img.exists() and image_name == "userdata.img":
+                src_img = built_root / "debian-bookworm-armhf-large-rootfs-userdata.img"
+            elif not src_img.exists() and image_name == "boot.img":
+                src_img = built_root / "boot-debian-large-rootfs.img"
+            if sha256_file(binary_root / image_name) != sha256_file(src_img):
                 raise ReleaseVerificationError(
                     f"unpacked firmware image differs from verified build: {image_name}"
                 )

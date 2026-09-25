@@ -12,6 +12,11 @@ DISPATCHER = PROJECT_ROOT / "patches/rootfs/usr/sbin/zu02-wwan-ip"
 
 
 class Zu02WwanIpTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if os.name == "nt":
+            raise unittest.SkipTest("POSIX sh is required for dispatcher tests")
+
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.state_dir = Path(self.temp_dir.name) / "state"

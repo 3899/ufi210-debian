@@ -39,29 +39,28 @@ case "$OUT_ROOT" in
 esac
 
 for required in \
-    "$AUDIT_SCRIPT" "$PRIVACY_AUDITOR" "$VERIFY_SCRIPT" "$ZIPPER" "$PROJECT_ROOT/install.bat" \
-    "$PROJECT_ROOT/enter-fastboot.bat" "$PROJECT_ROOT/scripts/enter_fastboot.ps1" \
+    "$AUDIT_SCRIPT" "$PRIVACY_AUDITOR" "$VERIFY_SCRIPT" "$ZIPPER" \
     "$PROJECT_ROOT/LICENSE" "$PROJECT_ROOT/docs/release-install.md" \
     "$PROJECT_ROOT/docs/release-notes.md" "$PROJECT_ROOT/docs/licensing.md" \
     "$PROJECT_ROOT/LICENSES/MIT.txt" "$PROJECT_ROOT/LICENSES/GPL-2.0-only.txt" \
-    "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-system.img" \
-    "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-cache.img" \
-    "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-userdata.img" \
-    "$DEBIAN_OUT/boot-debian-large-rootfs.img" \
+    "$DEBIAN_OUT/system.img" \
+    "$DEBIAN_OUT/cache.img" \
+    "$DEBIAN_OUT/userdata.img" \
+    "$DEBIAN_OUT/boot.img" \
     "$DEBIAN_OUT/BUILD-MANIFEST.txt" "$DEBIAN_OUT/REPRODUCIBILITY.txt"; do
     [[ -s "$required" ]] || die "缺少发布输入：$required"
 done
 
 log "运行 Debian large-rootfs 静态验收"
 bash "$VERIFY_SCRIPT"
-python3 "$PRIVACY_AUDITOR" "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-rootfs.tar.xz"
+python3 "$PRIVACY_AUDITOR" "$DEBIAN_OUT/rootfs.tar.xz"
 bash "$AUDIT_SCRIPT" workspace
 
 release_dir="$OUT_ROOT/$VERSION"
 [[ "$release_dir" == "$OUT_ROOT/"* ]] || die "候选发布目录越界：$release_dir"
 stage_dir="$release_dir/.stage"
 source_name="ufi210-debian-source-$VERSION"
-binary_name="ufi210-debian-zu02-dw01-$VERSION"
+binary_name="ufi210-debian-$VERSION"
 source_stage="$stage_dir/$source_name"
 binary_stage="$stage_dir/$binary_name"
 
@@ -94,19 +93,19 @@ install -m 0644 "$PROJECT_ROOT/LICENSE" "$binary_stage/LICENSE"
 install -m 0644 "$PROJECT_ROOT/docs/licensing.md" "$binary_stage/LICENSING.md"
 install -m 0644 "$PROJECT_ROOT/LICENSES/MIT.txt" "$binary_stage/LICENSES/MIT.txt"
 install -m 0644 "$PROJECT_ROOT/LICENSES/GPL-2.0-only.txt" "$binary_stage/LICENSES/GPL-2.0-only.txt"
-install -m 0644 "$PROJECT_ROOT/install.bat" "$binary_stage/install.bat"
-install -m 0644 "$PROJECT_ROOT/enter-fastboot.bat" "$binary_stage/enter-fastboot.bat"
-install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-system.img" "$binary_stage/"
-install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-cache.img" "$binary_stage/"
-install -m 0644 "$DEBIAN_OUT/debian-bookworm-armhf-large-rootfs-userdata.img" "$binary_stage/"
-install -m 0644 "$DEBIAN_OUT/boot-debian-large-rootfs.img" "$binary_stage/"
-install -m 0644 "$PROJECT_ROOT/scripts/install_debian_large_rootfs.ps1" "$binary_stage/scripts/"
-install -m 0644 "$PROJECT_ROOT/scripts/enter_fastboot.ps1" "$binary_stage/scripts/"
+if [[ -f "$PROJECT_ROOT/out/ufi210-debian-v1.0/flash.bat" ]]; then
+    install -m 0755 "$PROJECT_ROOT/out/ufi210-debian-v1.0/flash.bat" "$binary_stage/flash.bat"
+    install -m 0755 "$PROJECT_ROOT/out/ufi210-debian-v1.0/flash.sh" "$binary_stage/flash.sh"
+fi
+install -m 0644 "$DEBIAN_OUT/system.img" "$binary_stage/"
+install -m 0644 "$DEBIAN_OUT/cache.img" "$binary_stage/"
+install -m 0644 "$DEBIAN_OUT/userdata.img" "$binary_stage/"
+install -m 0644 "$DEBIAN_OUT/boot.img" "$binary_stage/"
 
-rootfs_system_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-large-rootfs-system.img" | awk '{print $1}')"
-rootfs_cache_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-large-rootfs-cache.img" | awk '{print $1}')"
-rootfs_userdata_hash="$(sha256sum "$binary_stage/debian-bookworm-armhf-large-rootfs-userdata.img" | awk '{print $1}')"
-boot_hash="$(sha256sum "$binary_stage/boot-debian-large-rootfs.img" | awk '{print $1}')"
+rootfs_system_hash="$(sha256sum "$binary_stage/system.img" | awk '{print $1}')"
+rootfs_cache_hash="$(sha256sum "$binary_stage/cache.img" | awk '{print $1}')"
+rootfs_userdata_hash="$(sha256sum "$binary_stage/userdata.img" | awk '{print $1}')"
+boot_hash="$(sha256sum "$binary_stage/boot.img" | awk '{print $1}')"
 manifest_value() {
     sed -n "s/^$1=//p" "$DEBIAN_OUT/BUILD-MANIFEST.txt"
 }
@@ -117,9 +116,9 @@ manifest_value() {
 [[ "$(manifest_value rootfs_userdata_image_sha256)" == "$rootfs_userdata_hash" ]] \
     || die "rootfs userdata 分段哈希与构建清单不一致"
 [[ "$(manifest_value rootfs_image_sha256)" == "$(cat \
-    "$binary_stage/debian-bookworm-armhf-large-rootfs-system.img" \
-    "$binary_stage/debian-bookworm-armhf-large-rootfs-cache.img" \
-    "$binary_stage/debian-bookworm-armhf-large-rootfs-userdata.img" \
+    "$binary_stage/system.img" \
+    "$binary_stage/cache.img" \
+    "$binary_stage/userdata.img" \
     | sha256sum | awk '{print $1}')" ]] \
     || die "完整逻辑 rootfs 哈希与三个分段不一致"
 [[ "$(manifest_value boot_image_sha256)" == "$boot_hash" ]] \
@@ -131,16 +130,16 @@ for reproducibility_field in \
     grep -Fqx "$reproducibility_field" "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
         || die "双构建报告缺少：$reproducibility_field"
 done
-grep -Fqx "$rootfs_system_hash  debian-bookworm-armhf-large-rootfs-system.img" \
+grep -Fqx "$rootfs_system_hash  system.img" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
     || die "当前 rootfs system 分段不属于已通过双构建比较的产物"
-grep -Fqx "$rootfs_cache_hash  debian-bookworm-armhf-large-rootfs-cache.img" \
+grep -Fqx "$rootfs_cache_hash  cache.img" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
     || die "当前 rootfs cache 分段不属于已通过双构建比较的产物"
-grep -Fqx "$rootfs_userdata_hash  debian-bookworm-armhf-large-rootfs-userdata.img" \
+grep -Fqx "$rootfs_userdata_hash  userdata.img" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
     || die "当前 rootfs userdata 分段不属于已通过双构建比较的产物"
-grep -Fqx "$boot_hash  boot-debian-large-rootfs.img" \
+grep -Fqx "$boot_hash  boot.img" \
     "$DEBIAN_OUT/REPRODUCIBILITY.txt" \
     || die "当前 boot 不属于已通过双构建比较的产物"
 
@@ -228,16 +227,16 @@ lte_apn=$(manifest_value lte_apn)
 qcdt_version=$(manifest_value qcdt_version)
 qcdt_record_count=$(manifest_value qcdt_record_count)
 qcdt_unique_dtb_count=$(manifest_value qcdt_unique_dtb_count)
-rootfs_system_image=debian-bookworm-armhf-large-rootfs-system.img
+rootfs_system_image=system.img
 rootfs_system_image_bytes=$(manifest_value rootfs_system_image_bytes)
 rootfs_system_image_sha256=$rootfs_system_hash
-rootfs_cache_image=debian-bookworm-armhf-large-rootfs-cache.img
+rootfs_cache_image=cache.img
 rootfs_cache_image_bytes=$(manifest_value rootfs_cache_image_bytes)
 rootfs_cache_image_sha256=$rootfs_cache_hash
-rootfs_userdata_image=debian-bookworm-armhf-large-rootfs-userdata.img
+rootfs_userdata_image=userdata.img
 rootfs_userdata_image_bytes=$(manifest_value rootfs_userdata_image_bytes)
 rootfs_userdata_image_sha256=$rootfs_userdata_hash
-boot_image=boot-debian-large-rootfs.img
+boot_image=boot.img
 boot_image_sha256=$boot_hash
 EOF
 

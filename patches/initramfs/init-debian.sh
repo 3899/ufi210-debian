@@ -153,12 +153,17 @@ find_exact_partition() {
         return 2
     fi
     actual_sectors="$(cat "/sys/class/block/${found##*/}/size")"
-    if [ "$actual_sectors" != "$expected_sectors" ]; then
+    if [ "$partlabel" = "userdata" ]; then
+        if [ "$actual_sectors" -lt 3250584 ]; then
+            echo "[zu02-initramfs] $partlabel has $actual_sectors sectors, expected >= 3250584" >/dev/kmsg
+            return 2
+        fi
+    elif [ -n "$expected_sectors" ] && [ "$actual_sectors" != "$expected_sectors" ]; then
         echo "[zu02-initramfs] $partlabel has $actual_sectors sectors, expected $expected_sectors" >/dev/kmsg
         return 2
     fi
     actual_start="$(cat "/sys/class/block/${found##*/}/start")"
-    if [ "$actual_start" != "$expected_start" ]; then
+    if [ -n "$expected_start" ] && [ "$actual_start" != "$expected_start" ]; then
         echo "[zu02-initramfs] $partlabel starts at $actual_start, expected $expected_start" >/dev/kmsg
         return 2
     fi
@@ -188,9 +193,6 @@ create_large_root() {
     readonly_flag="$1"
     system_sectors=2516584
     cache_sectors=524288
-    userdata_sectors=3766239
-    userdata_start=$((system_sectors + cache_sectors))
-    total_sectors=$((userdata_start + userdata_sectors))
     system_start=461920
     cache_start=3044040
     userdata_lba=3803136
@@ -201,9 +203,13 @@ create_large_root() {
     if ! cache_dev="$(wait_for_exact_partition cache "$cache_sectors" "$cache_start")"; then
         large_root_failure "$readonly_flag" 'cache partition is missing, duplicated, or has the wrong size'
     fi
-    if ! userdata_dev="$(wait_for_exact_partition userdata "$userdata_sectors" "$userdata_lba")"; then
+    if ! userdata_dev="$(wait_for_exact_partition userdata "" "$userdata_lba")"; then
         large_root_failure "$readonly_flag" 'userdata partition is missing, duplicated, or has the wrong size'
     fi
+
+    userdata_sectors="$(cat "/sys/class/block/${userdata_dev##*/}/size")"
+    userdata_start=$((system_sectors + cache_sectors))
+    total_sectors=$((userdata_start + userdata_sectors))
 
     mkdir -p /dev/mapper /run/lock
     if dmsetup info ufi210-root >/dev/null 2>&1; then
@@ -291,5 +297,10 @@ mount --move /dev /sysroot/dev
 mount --move /proc /sysroot/proc
 mount --move /sys /sysroot/sys
 mount --move /run /sysroot/run
+
+if [ -x /sysroot/sbin/resize2fs ]; then
+    log 'expanding root filesystem to full capacity'
+    /bin/busybox chroot /sysroot /sbin/resize2fs /dev/mapper/ufi210-root >/sysroot/dev/kmsg 2>&1 || true
+fi
 
 exec switch_root /sysroot /sbin/init

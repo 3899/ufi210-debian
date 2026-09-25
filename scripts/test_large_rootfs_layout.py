@@ -44,7 +44,7 @@ class LargeRootfsLayoutTests(unittest.TestCase):
             self.assertIn('large-rootfs)', text)
             self.assertIn('ROOTFS_DEVICE="/dev/mapper/ufi210-root"', text)
             self.assertIn('ROOTFS_LABEL="ufi210-root"', text)
-            self.assertIn('LARGE_ROOTFS_SIZE=3485240832', text)
+            self.assertIn('LARGE_ROOTFS_SIZE=3401351168', text)
             self.assertIn('dm-linear-system-cache-userdata', text)
             self.assertIn('ROOTFS_AUTO_GROW=disabled', text)
         initramfs_build = (Path(__file__).with_name("build_debian_initramfs.sh"))
@@ -72,8 +72,8 @@ class LargeRootfsLayoutTests(unittest.TestCase):
 
     def test_initramfs_fails_closed_on_geometry_mismatch(self) -> None:
         init = INITRAMFS.read_text(encoding="utf-8")
-        self.assertIn('if [ "$actual_sectors" != "$expected_sectors" ]; then', init)
-        self.assertIn('if [ "$actual_start" != "$expected_start" ]; then', init)
+        self.assertIn('[ "$actual_sectors" != "$expected_sectors" ]', init)
+        self.assertIn('[ "$actual_start" != "$expected_start" ]', init)
         for partition in ("system", "cache", "userdata"):
             self.assertIn(
                 f"large_root_failure \"$readonly_flag\" '{partition} partition "

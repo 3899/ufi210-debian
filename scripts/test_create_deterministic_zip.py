@@ -13,7 +13,7 @@ class DeterministicZipTests(unittest.TestCase):
             root = Path(temporary)
             source = root / "ufi210-debian-zu02-dw01-rc-test"
             (source / "scripts").mkdir(parents=True)
-            (source / "README.md").write_text("说明\n", encoding="utf-8")
+            (source / "README.md").write_text("说明\n", encoding="utf-8", newline="\n")
             script = source / "scripts" / "verify.ps1"
             script.write_bytes(b"Write-Output ok\n")
             first = root / "first.zip"

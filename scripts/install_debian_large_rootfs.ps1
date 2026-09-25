@@ -667,7 +667,7 @@ if ($selectedAdbSerial) {
         $debianProbe.Text -match '(?m)^hostname=ufi210\r?$' -and
         $debianProbe.Text -match '(?m)^soc_id=245\r?$' -and
         $debianProbe.Text -match '(?m)^root=(?:/dev/mmcblk0p21|/dev/mapper/ufi210-root)\r?$' -and
-        $debianProbe.Text -match '(?m)^disk_sectors=7569408\r?$' -and
+        $debianProbe.Text -match '(?m)^disk_sectors=(?:7569408|7405568)\r?$' -and
         $debianProbe.Text -match '(?m)^boot_start=396384\r?$' -and
         $debianProbe.Text -match '(?m)^boot_sectors=65536\r?$' -and
         $debianProbe.Text -match '(?m)^system_start=461920\r?$' -and
@@ -675,7 +675,7 @@ if ($selectedAdbSerial) {
         $debianProbe.Text -match '(?m)^cache_start=3044040\r?$' -and
         $debianProbe.Text -match '(?m)^cache_sectors=524288\r?$' -and
         $debianProbe.Text -match '(?m)^userdata_start=3803136\r?$' -and
-        $debianProbe.Text -match '(?m)^userdata_sectors=3766239\r?$' -and
+        $debianProbe.Text -match '(?m)^userdata_sectors=(?:3766239|3602399)\r?$' -and
         $debianProbe.Text -match '(?m)^reboot_compat=yes\r?$'
 
     if ($isDebian) {
@@ -705,7 +705,7 @@ if ($selectedAdbSerial) {
         if ($probe.Text -notmatch '(?m)^device=msm8909\r?$' -or
             $probe.Text -notmatch '(?m)^soc_id=245\r?$' -or
             $probe.Text -notmatch '(?m)^boot_completed=1\r?$' -or
-            $probe.Text -notmatch '(?m)^disk_sectors=7569408\r?$' -or
+            $probe.Text -notmatch '(?m)^disk_sectors=(?:7569408|7405568)\r?$' -or
             $probe.Text -notmatch '(?m)^boot_start=396384\r?$' -or
             $probe.Text -notmatch '(?m)^boot_sectors=65536\r?$' -or
             $probe.Text -notmatch '(?m)^system_start=461920\r?$' -or
@@ -713,7 +713,7 @@ if ($selectedAdbSerial) {
             $probe.Text -notmatch '(?m)^cache_start=3044040\r?$' -or
             $probe.Text -notmatch '(?m)^cache_sectors=524288\r?$' -or
             $probe.Text -notmatch '(?m)^userdata_start=3803136\r?$' -or
-            $probe.Text -notmatch '(?m)^userdata_sectors=3766239\r?$') {
+            $probe.Text -notmatch '(?m)^userdata_sectors=(?:3766239|3602399)\r?$') {
             throw "目标 Android 身份或分区布局不匹配：`r`n$($probe.Text)"
         }
         if (-not $BootBackupPath) {

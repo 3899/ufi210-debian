@@ -108,7 +108,7 @@ if [[ -n "$RELEASE_VERSION" ]]; then
 fi
 
 log "纯 Debian 大根卷固件构建完成"
-printf 'rootfs_system=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-system.img"
-printf 'rootfs_cache=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-cache.img"
-printf 'rootfs_userdata=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/debian-bookworm-armhf-large-rootfs-userdata.img"
-printf 'boot=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/boot-debian-large-rootfs.img"
+printf 'system=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/system.img"
+printf 'cache=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/cache.img"
+printf 'userdata=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/userdata.img"
+printf 'boot=%s\n' "$PROJECT_ROOT/out/mainline/debian-large-rootfs/boot.img"

@@ -91,7 +91,7 @@ fi
 OUT_ROOT="$OUT_ROOT" bash "$PACKAGE_SCRIPT" "$VERSION"
 
 release_dir="$OUT_ROOT/$VERSION"
-binary_name="ufi210-debian-zu02-dw01-$VERSION"
+binary_name="ufi210-debian-$VERSION"
 source_name="ufi210-debian-source-$VERSION"
 debian_source_name="ufi210-debian-debian-sources-$VERSION"
 kernel_source_name="ufi210-debian-kernel-source-$VERSION"

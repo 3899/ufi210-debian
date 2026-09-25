@@ -29,8 +29,8 @@ REPRO_ROOT="${REPRO_ROOT:-$EXPECTED_REPRO_ROOT}"
 BUILD_ROOT="${BUILD_ROOT:-$EXPECTED_BUILD_ROOT}"
 PUBLISH_DIR="${PUBLISH_DIR:-$EXPECTED_PUBLISH_DIR}"
 FILES=(
-    "debian-bookworm-armhf-${TARGET_PARTITION}-rootfs.tar.xz"
-    "boot-debian-${TARGET_PARTITION}.img"
+    "rootfs.tar.xz"
+    "boot.img"
     initramfs-zu02-debian
     qcdt-zu02-dw01.img
     packages.txt
@@ -40,9 +40,9 @@ FILES=(
 )
 if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
     FILES+=(
-        "debian-bookworm-armhf-large-rootfs-system.img"
-        "debian-bookworm-armhf-large-rootfs-cache.img"
-        "debian-bookworm-armhf-large-rootfs-userdata.img"
+        "system.img"
+        "cache.img"
+        "userdata.img"
     )
 else
     FILES+=("debian-bookworm-armhf-${TARGET_PARTITION}.ext4")
