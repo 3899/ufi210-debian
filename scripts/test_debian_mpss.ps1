@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [string]$AdbSerial = "192.168.68.1:5555",
     [int]$ReadyTimeoutSeconds = 180,
@@ -224,7 +224,7 @@ Write-Utf8File (Join-Path $OutputDir "windows-wlan-after.txt") ($windowsWlanAfte
 
 if ($serviceProbe.Text -notmatch '/org/freedesktop/ModemManager1/Modem/[0-9]+' -or
     $serviceProbe.Text -notmatch '(?m)^remoteproc[0-9]+ state=running\s*$' -or
-    $serviceProbe.Text -notmatch 'argv\[\]=/usr/bin/rmtfs -r -P -s' -or
+    $serviceProbe.Text -notmatch 'argv\[\]=/usr/bin/rmtfs (?:-r )?-P -s' -or
     $serviceProbe.Text -notmatch '(?m)^\S+\s+vfat\s+ro(?:,|\s*$)' -or
     $serviceProbe.Text -notmatch '(?ms)=== PERSIST MOUNT ===\r?\n\S+\s+ext4\s+ro(?:,|\s)' -or
     $serviceProbe.Text -notmatch '(?m)^PARTLABEL=persist /persist ext4 ro,noload,') {

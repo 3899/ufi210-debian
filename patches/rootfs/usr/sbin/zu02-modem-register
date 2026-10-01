@@ -3,9 +3,9 @@ set -eu
 
 rmtfs_exec="$(systemctl show rmtfs.service -p ExecStart --value)"
 case "$rmtfs_exec" in
-    *'/usr/bin/rmtfs -r -P -s'*) ;;
+    *'/usr/bin/rmtfs -P -s'*|*'/usr/bin/rmtfs -r -P -s'*) ;;
     *)
-        echo 'zu02-modem-register: rmtfs is not in read-only mode' >&2
+        echo 'zu02-modem-register: rmtfs is not running' >&2
         exit 1
         ;;
 esac

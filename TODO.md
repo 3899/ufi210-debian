@@ -204,6 +204,117 @@ Debian；`df /` 显示经审计的大根分区容量；APT 无需特殊路径即
 - [x] 所有主动建立蜂窝数据连接的测试脚本增加 `-AllowCellularDataUsage` 显式资费确认保护。
 - [ ] 使用可收发短信的有效 SIM 完成 ModemManager 短信收发回归。
 
+## M3.1：WWAN0 数据面一致性与 VoLTE 协同（UFI210 / MSM8909）
+
+### 背景与边界
+
+SimAdmin 的 VoLTE 运行时需要同时协调普通蜂窝数据 PDP 与 IMS PDP。本项定义 Debian、
+内核/驱动、MPSS/QRTR、ModemManager、NetworkManager 和 SimAdmin 之间的运行态契约；
+不修改 modem、persist、modemst1/2、fsg 或其他基带校准/身份分区，也不通过重启基带掩盖
+状态机缺陷。
+
+对具备 DATA6/第二 QMI 端口的设备，既有全局策略必须保持：关闭普通数据时 IMS 可使用主
+WWAN；用户开启普通数据后，普通数据优先占用主数据通路，IMS 经受控释放后迁移到 DATA6。
+本项只处理没有可用第二端口时的 `shared_wwan0` 兜底路径，不能把所有设备强制改为共用
+`wwan0`。
+
+### 2026-09-25 已确认的现场事实
+
+- UFI210 上运行的 SimAdmin 1.2.1 在联通 LTE 驻网、非漫游、强信号条件下，VoLTE 未进入
+  P-CSCF、SIP 或 AKA 阶段即失败，故此案例不能归因于 IMS 开通状态或 SIP 鉴权。
+- 普通数据 bearer 显示 active，APN 为 `3gnet`；但对应 `wwan0` 保留 IPv4 地址、接口实际
+  为 down、收发计数为零。这是“ModemManager 控制面已连接”和“Linux 数据面不可用”的
+  明确不一致。
+- 在普通数据关闭时，IMS 经 ModemManager bearer 建立，失败为
+  `No valid data port found to launch connection`。
+- 经授权开启普通数据并请求一次 VoLTE 重连后，运行时切换到 primary-QMI 的 IMS WDS 路径，
+  两次均失败为 `QMI protocol error (70): InvalidOperation`；运行态仍为
+  `data_path_mode=shared_wwan0`。
+- 当时系统只暴露 `wwan0`，没有已可用的 `wwan1`/DATA6 数据端口。因此当前设备不能执行
+  “IMS 迁移到第二端口”的正常策略，必须先识别并处理单端口共享路径。
+
+### 当前判断与待证假设
+
+- [x] 已确认：仅以 bearer 的 connected/active 字段作为“数据已可用”判断是不充分的；必须
+  同时核验内核 netdev、地址/路由和 QMI WDS 会话。
+- [x] 已确认：SimAdmin 在 VoLTE 模式下禁止 NetworkManager 自动拨号并将数据路径交给运行时，
+  因而应用层必须对 stale bearer 做显式协调，不能假定固件会自动修复。
+- [ ] 待证：`wwan0` down 是否由 QMI/WWAN 驱动、MPSS 的 WDS 清理、NetworkManager 接管时序
+  或上述多因素共同造成；当前证据不足以将问题单独归咎于 Debian 固件。
+- [ ] 待证：DATA6 RPMSG 端点是否在该固件/设备上不存在、未绑定、未被正确初始化，或只是
+  SimAdmin 运行时未能发现；在未完成只读检查前禁止强制绑定驱动。
+- [ ] 待证：联通/移动是否还存在 IMS profile、PDP 地址族或基带预置 profile 差异；必须在
+  `wwan0` 健康、IMS bearer 确实已建立后才能分析该层。
+
+### F0：只读诊断与证据采集
+
+- [ ] 增加一次性、无副作用的 `ufi210-wwan-diagnose` 采集器，输出脱敏后的以下快照：
+  `/sys/class/net/wwan0/{operstate,carrier,flags,mtu}`、`ip -d link`、地址/路由、
+  NetworkManager 设备与连接状态、ModemManager modem/bearer 关键字段、QMI WDS packet-service
+  status、qmi-proxy 状态、QRTR 节点、MPSS remoteproc 状态和 DATA6 候选端点。
+- [ ] 每份快照记录 boot_id、时间、SIM 运营商代码、当前数据开关和 SimAdmin 的
+  `data_path_mode`；不得记录 IMSI、ICCID、手机号、鉴权材料、APN 密码或其他凭据。
+- [ ] 在以下四个受控状态各采一份快照：刚启动未拨号、普通数据成功、普通数据 bearer active
+  但 `wwan0` down、VoLTE 启动失败。主动蜂窝数据测试必须使用明确授权的测试卡及
+  `-AllowCellularDataUsage` 保护。
+- [ ] 以纯 Debian/NetworkManager 的显式拨号做对照：不启动 SimAdmin VoLTE，确认一次正常
+  激活和断开是否能始终使 `wwan0` up/down 与 bearer 状态同步。该测试用于区分固件基础问题和
+  SimAdmin 生命周期问题。
+
+### F1：Debian 用户空间与数据面契约
+
+- [ ] 将“数据已连接”的平台健康定义固定为：bearer 已连接、关联 WWAN 接口 admin-up 且
+  operstate/carrier 合理、已取得对应地址，并且 QMI WDS session 或 NetworkManager active
+  connection 与其一致；任何一项不满足都只能报告“stale/unhealthy”，不能复用该 bearer。
+- [ ] 修正 NetworkManager/ModemManager 的显式激活路径：若 modem 声称 Connected 但 `wwan0`
+  down，不得提前返回“已连接”；应由连接所有者完成一次受控 deactivate/activate 或等效恢复，
+  并等待有限时间确认内核数据面恢复。
+- [ ] 明确连接所有权：NetworkManager 管理的普通数据 bearer 不可被 VoLTE 清理逻辑直接删除；
+  SimAdmin 仅能释放自身创建的 IMS WDS client、IMS PDP profile、临时路由、XFRM state/policy。
+- [ ] 断开普通数据后由其所有者同步清理地址、路由和 DNS，防止“旧地址保留而接口 down”误导
+  上层；保留失败快照供诊断，禁止无记录的强制清理。
+- [ ] 制定系统服务顺序：MPSS/QRTR、qmi-proxy、ModemManager、NetworkManager 和 SimAdmin 的
+  启动/重启依赖必须可观测；任一前置服务重启后，旧 WDS client 与网卡状态不得被当作健康会话。
+
+### F2：内核、QMI 与 DATA6 能力检查
+
+- [ ] 复核 `qmi_wwan`/相关 WWAN 驱动的 raw-IP、netdev 注册、carrier 与 WDS start/stop 路径；
+  确认在 QMI session 成功建立时正确拉起 `wwan0`，在会话释放时与地址/路由生命周期一致。
+- [ ] 对 MPSS SSR、USB/RPMSG 重绑定和 ModemManager 重启进行故障注入，验证不会遗留
+  “bearer connected + wwan0 down”的半连接状态。
+- [ ] 只读检查 DATA6_CNTL RPMSG 端点、driver_override、绑定状态及可能创建的第二 QMI/WWAN
+  设备；只有证据表明硬件端点存在且当前绑定缺失时，才设计可回滚的 DATA6 初始化修复。
+- [ ] 禁止通过在启动时强制 `ip link set wwan0 up` 作为修复。它只能改变 Linux 标志，不能证明
+  PDP、WDS、地址、路由和 DNS 已恢复，且会掩盖真实的 QMI/所有权问题。
+- [ ] 禁止把自动重启 ModemManager、MPSS 或基带作为常规恢复策略。若受控数据恢复仍失败，
+  应保留证据并向上层返回明确故障；重启仅可作为用户触发的最后手段。
+
+### F3：与 SimAdmin 的接口和恢复协作
+
+- [ ] SimAdmin 在 IMS 启动前调用或等价实现 F1 健康核验；遇到 stale bearer 时先请求普通数据
+  所有者恢复，确认成功后才允许 QMI IMS WDS start。
+- [ ] 将 `No valid data port`、`wwan0` 不健康、QMI `InvalidOperation` 区分为独立故障码，
+  上报 selected topology、接口健康结果、QMI endpoint 与 profile/address-family；不得只上报
+  原始命令末行。
+- [ ] 在 shared-WWAN0 模式中，正常数据与 IMS 使用独立且可追踪的 WDS client/session；启动、
+  停止和失败回收必须严格串行。若硬件确认仅支持单 PDP，向 UI/Hub 暴露能力限制，不能静默抢占
+  用户数据。
+- [ ] 在 DATA6 可用的设备上，继续执行“普通数据优先、IMS 迁移第二端口”；F1/F2 的健康核验
+  不得改变该全局策略。
+
+### F4：验收标准
+
+- [ ] 20 次普通数据 connect/disconnect 循环中，bearer、`wwan0`、地址/路由和 WDS 状态无一次
+  不一致；失败时必须生成可诊断快照。
+- [ ] 冷启动、普通重启、ModemManager 重启和 MPSS 恢复后，旧地址/路由不会被错误复用；普通
+  数据能重新进入健康状态。
+- [ ] 有 DATA6 的设备：验证“关数据 + VoLTE 使用主端口”与“开数据 + VoLTE 迁移第二端口”，
+  迁移期间不遗留 WDS session 或临时网络状态。
+- [ ] shared-WWAN0 设备：分别验证“关数据 + IMS-only”及“开数据 + IMS 与普通数据并存”；若
+  硬件不支持并存，必须返回确定能力结果，不能以无限退避、基带重启或静默断网代替。
+- [ ] 使用电信、联通、移动卡进行上层 IMS 兼容性测试前，先满足本节数据面健康门槛；此后才
+  比较 IMS profile、IPv4/IPv6、P-CSCF、AKA 和 SIP 注册差异。
+
 ## M4：网络与安全
 
 - [x] USB 管理地址固定为 `192.168.68.1/24`。

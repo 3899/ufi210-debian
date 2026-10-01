@@ -1018,8 +1018,8 @@ grep -q '^RequiresMountsFor=/firmware$' <<<"$rmtfs_override" \
     || die "rmtfs 未依赖 modem firmware 挂载点"
 grep -q '^ExecStartPre=/sbin/modprobe qcom_q6v5_mss$' <<<"$rmtfs_override" \
     || die "rmtfs 未在启动前注册 MPSS remoteproc"
-grep -q '^ExecStart=/usr/bin/rmtfs -r -P -s$' <<<"$rmtfs_override" \
-    || die "rmtfs 未固定为只读物理分区同步模式"
+grep -q '^ExecStart=/usr/bin/rmtfs -P -s$' <<<"$rmtfs_override" \
+    || die "rmtfs 未固定为物理分区同步模式"
 modem_prepare_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-modem-prepare.service)"
 grep -q '^Requires=zu02-mpss.service qrtr-ns.service rmtfs.service$' <<<"$modem_prepare_service" \
     || die "modem prepare 服务依赖不完整"

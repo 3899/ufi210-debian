@@ -45,7 +45,7 @@ RAM、电源、USB、WCNSS 和 MPSS，再为对应硬件建立独立 target。
 - 固定 USB RNDIS 与 ACM、RNDIS 上的 TCP ADB 和 SSH；RNDIS MAC 按设备稳定派生。
 - NetworkManager、完整 `nmcli`、简体中文 `nmtui`。
 - WCNSS/WCN36XX、Wi-Fi 扫描、WPA2 AP、DHCP。
-- MPSS、QRTR、只读 RMTFS、BAM-DMUX、ModemManager、SIM 和 LTE。
+- MPSS、QRTR、RMTFS、BAM-DMUX、ModemManager、SIM 和 LTE。
 - NetworkManager nftables NAT；SSH 22 和 ADB 5555 只允许从 `usb0` 进入。
 - CPU thermal `step_wise` 与 cpufreq cooling，板级被动降频阈值为 75°C。
 - 根分区使用 `noatime`，启用每周 `fstrim.timer`，不默认使用 eMMC swap。

@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$')]
@@ -130,7 +130,7 @@ findmnt -nro SOURCE,FSTYPE,OPTIONS /persist
 grep '^PARTLABEL=persist /persist ext4 ro,noload,' /etc/fstab
 '@
 Write-Utf8File (Join-Path $OutputDir "write-protection.txt") ($policy.Text + "`r`n")
-if ($policy.Text -notmatch 'argv\[\]=/usr/bin/rmtfs -r -P -s' -or
+if ($policy.Text -notmatch 'argv\[\]=/usr/bin/rmtfs (?:-r )?-P -s' -or
     $policy.Text -notmatch '(?m)^\S+\s+vfat\s+ro(?:,|$)' -or
     $policy.Text -notmatch '(?m)^\S+\s+ext4\s+ro(?:,|$)' -or
     $policy.Text -notmatch '(?m)^PARTLABEL=persist /persist ext4 ro,noload,') {

@@ -28,7 +28,7 @@
 - 固定 RNDIS `192.168.68.1` 与 ACM、RNDIS 上的 TCP ADB 和 SSH；RNDIS MAC 按设备稳定派生。
 - NetworkManager、完整 `nmcli`、简体中文 `nmtui`。
 - WCNSS/WCN36XX、Wi-Fi 扫描、WPA2 AP 与 DHCP。
-- MPSS、QRTR、只读 RMTFS、BAM-DMUX 和 ModemManager。
+- MPSS、QRTR、RMTFS、BAM-DMUX 和 ModemManager。
 - USB-only 管理防火墙、NetworkManager nftables NAT。
 - 75°C 被动降频阈值和 cpufreq cooling。
 - 前一版 system/data/boot 候选已完成两次独立构建、端到端持久安装和 boot 回读；本版大根卷

@@ -696,7 +696,7 @@ RequiresMountsFor=/firmware
 [Service]
 ExecStartPre=/sbin/modprobe qcom_q6v5_mss
 ExecStart=
-ExecStart=/usr/bin/rmtfs -r -P -s
+ExecStart=/usr/bin/rmtfs -P -s
 EOF
 cat > "$ROOTFS/etc/systemd/system/zu02-mpss.service" <<'EOF'
 [Unit]

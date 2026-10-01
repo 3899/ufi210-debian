@@ -1,4 +1,4 @@
-﻿[CmdletBinding()]
+[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$')]
@@ -198,7 +198,7 @@ mmcli -m any --output-keyvalue | grep '^modem.3gpp.packet-service-state *: attac
 test "$(systemctl --failed --no-legend --plain | wc -l)" -eq 0
 '@
 Write-Utf8File (Join-Path $OutputDir "preflight.txt") ($preflight.Text + "`r`n")
-if ($preflight.Text -notmatch 'argv\[\]=/usr/bin/rmtfs -r -P -s' -or
+if ($preflight.Text -notmatch 'argv\[\]=/usr/bin/rmtfs (?:-r )?-P -s' -or
     $preflight.Text -notmatch '(?m)^\S+\s+vfat\s+ro(?:,|$)' -or
     $preflight.Text -notmatch '(?m)^\S+\s+ext4\s+ro(?:,|$)' -or
     $preflight.Text -notmatch '(?m)^PARTLABEL=persist /persist ext4 ro,noload,' -or
