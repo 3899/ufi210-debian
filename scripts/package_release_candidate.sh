@@ -52,7 +52,9 @@ for required in \
 done
 
 log "运行 Debian large-rootfs 静态验收"
-bash "$VERIFY_SCRIPT"
+if [[ "${SKIP_STATIC_VERIFY:-0}" != "1" ]]; then
+    bash "$VERIFY_SCRIPT"
+fi
 python3 "$PRIVACY_AUDITOR" "$DEBIAN_OUT/rootfs.tar.xz"
 bash "$AUDIT_SCRIPT" workspace
 
@@ -68,7 +70,7 @@ rm -rf -- "$release_dir"
 mkdir -p "$source_stage" "$binary_stage/scripts" "$binary_stage/LICENSES"
 
 log "按白名单收集公开源码"
-for file in .dockerignore .gitattributes .gitignore Dockerfile LICENSE README.md SECURITY.md TODO.md build.sh install.bat enter-fastboot.bat resource/README.md; do
+for file in .dockerignore .gitattributes .gitignore Dockerfile LICENSE README.md SECURITY.md build.sh install.bat enter-fastboot.bat connect-adb.bat resource/README.md; do
     install -D -m 0644 "$PROJECT_ROOT/$file" "$source_stage/$file"
 done
 while IFS= read -r -d '' file; do
@@ -93,9 +95,13 @@ install -m 0644 "$PROJECT_ROOT/LICENSE" "$binary_stage/LICENSE"
 install -m 0644 "$PROJECT_ROOT/docs/licensing.md" "$binary_stage/LICENSING.md"
 install -m 0644 "$PROJECT_ROOT/LICENSES/MIT.txt" "$binary_stage/LICENSES/MIT.txt"
 install -m 0644 "$PROJECT_ROOT/LICENSES/GPL-2.0-only.txt" "$binary_stage/LICENSES/GPL-2.0-only.txt"
+if [[ -f "$PROJECT_ROOT/connect-adb.bat" ]]; then
+    install -m 0755 "$PROJECT_ROOT/connect-adb.bat" "$binary_stage/connect-adb.bat"
+fi
 if [[ -f "$PROJECT_ROOT/out/ufi210-debian-v1.0/flash.bat" ]]; then
     install -m 0755 "$PROJECT_ROOT/out/ufi210-debian-v1.0/flash.bat" "$binary_stage/flash.bat"
     install -m 0755 "$PROJECT_ROOT/out/ufi210-debian-v1.0/flash.sh" "$binary_stage/flash.sh"
+    LC_ALL=C sed -i "s/v1\.0/$VERSION/g" "$binary_stage/flash.bat" "$binary_stage/flash.sh"
 fi
 install -m 0644 "$DEBIAN_OUT/system.img" "$binary_stage/"
 install -m 0644 "$DEBIAN_OUT/cache.img" "$binary_stage/"

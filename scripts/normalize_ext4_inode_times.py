@@ -43,7 +43,7 @@ def allocated_inodes(image: Path, epoch: int) -> list[int]:
     inode_count = int(inode_count_match.group(1))
     expected_free_count = int(free_count_match.group(1))
     free_inodes: set[int] = set()
-    for match in re.finditer(r"^[ \t]+Free inodes:\s*(.*?)\s*$", result.stdout, re.MULTILINE):
+    for match in re.finditer(r"^[ \t]+Free inodes:[ \t]*(.*?)[ \t]*$", result.stdout, re.MULTILINE):
         value = match.group(1)
         if not value or value.lower() in {"none", "<none>"}:
             continue

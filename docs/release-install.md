@@ -108,6 +108,8 @@ adb -s 192.168.68.1:5555 shell
 ssh root@192.168.68.1
 ```
 
+Windows 端也可直接双击运行配套的 `connect-adb.bat` 一键自动连接并打开 root 交互 shell（支持传参指定无线局域网 IP）。
+
 初始 root 密码为 `simadmin`。首次登录后立即执行：
 
 ```sh
@@ -117,8 +119,8 @@ passwd
 USB ACM 也提供 systemd serial getty。系统含完整 `nmcli` 和简体中文 `nmtui`；系统默认 locale
 仍为 `C.UTF-8`，便于脚本读取稳定输出。
 
-ADB 监听 USB 管理地址 `192.168.68.1:5555`，不提供 Android 式客户端授权。nftables 把
-SSH 22 和 ADB 5555 都限制到 USB 管理接口 `usb0`，禁止从 Wi-Fi 和蜂窝接口访问。不要停用
+ADB 监听固定端口 5555，不提供 Android 式客户端授权。nftables 把
+SSH 22 和 ADB 5555 限制到 USB 管理接口 `usb0` 与无线局域网 `wlan0`，严格禁止从蜂窝 `wwan0` 接口访问。不要停用
 `zu02-firewall.service`。
 
 RNDIS 设备端和主机端 MAC 在每次启动时由设备自身序列种子单向派生，属于本地管理单播地址；

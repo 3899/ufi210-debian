@@ -47,7 +47,15 @@ ensure_build_mount() {
 
     mkdir -p /build
     if ! mountpoint -q /build; then
-        mount -t tmpfs -o size=1536M,mode=0755,exec,dev,nosuid tmpfs /build
+        local build_size="${BUILD_TMPFS_SIZE:-}"
+        if [[ -z "$build_size" ]]; then
+            if [[ "$TARGET_PARTITION" == "large-rootfs" ]]; then
+                build_size="6G"
+            else
+                build_size="1536M"
+            fi
+        fi
+        mount -t tmpfs -o "size=$build_size,mode=0755,exec,dev,nosuid" tmpfs /build
     fi
     test_dir="/build/.device-test-$$"
     mkdir -p "$test_dir"

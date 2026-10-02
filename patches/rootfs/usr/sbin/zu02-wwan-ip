@@ -24,6 +24,8 @@ bearer_value() {
 clear_network() {
     ip route del default dev wwan0 metric 700 2>/dev/null || true
     ip address flush dev wwan0 scope global 2>/dev/null || true
+    ip -6 route del default dev wwan0 metric 700 2>/dev/null || true
+    ip -6 address flush dev wwan0 scope global 2>/dev/null || true
 }
 
 case "$action" in
@@ -71,53 +73,88 @@ done
     exit 1
 }
 
+has_ipv4=0
 address="$(bearer_value bearer.ipv4-config.address)"
 prefix="$(bearer_value bearer.ipv4-config.prefix)"
 gateway="$(bearer_value bearer.ipv4-config.gateway)"
 mtu="$(bearer_value bearer.ipv4-config.mtu)"
 
 case "$address:$gateway" in
-    *[!0-9.:]*|:*|*:)
-        log 'the bearer returned invalid IPv4 addresses'
-        exit 1
+    *[!0-9.:]*|:*|*:) ;;
+    *)
+        case "$prefix" in
+            [1-9]|[12][0-9]|3[0-2])
+                case "$mtu" in
+                    ''|*[!0-9]*) ;;
+                    *)
+                        if [ "$mtu" -ge 576 ] && [ "$mtu" -le 2040 ]; then
+                            has_ipv4=1
+                        fi
+                        ;;
+                esac
+                ;;
+        esac
         ;;
 esac
-case "$prefix" in
-    ''|*[!0-9]*) log 'the bearer returned an invalid IPv4 prefix'; exit 1 ;;
-esac
-[ "$prefix" -ge 1 ] && [ "$prefix" -le 32 ] || exit 1
-case "$mtu" in
-    ''|*[!0-9]*) log 'the bearer returned an invalid MTU'; exit 1 ;;
-esac
-[ "$mtu" -ge 576 ] && [ "$mtu" -le 2040 ] || exit 1
 
-dns_servers="$(
-    printf '%s\n' "$bearer_status" \
-        | awk -F '[[:space:]]*:[[:space:]]*' \
-            '$1 ~ /^bearer\.ipv4-config\.dns\.value\[[0-9]+\]$/ {print $2}'
-)"
-dns_csv=''
-for dns_server in $dns_servers; do
-    case "$dns_server" in
-        *[!0-9.]*|'') continue ;;
-    esac
-    if [ -n "$dns_csv" ]; then
-        dns_csv="$dns_csv,$dns_server"
-    else
-        dns_csv="$dns_server"
-    fi
-done
+has_ipv6=0
+address6="$(bearer_value bearer.ipv6-config.address)"
+prefix6="$(bearer_value bearer.ipv6-config.prefix)"
+gateway6="$(bearer_value bearer.ipv6-config.gateway)"
+mtu6="$(bearer_value bearer.ipv6-config.mtu)"
 
-if [ -n "$dns_csv" ]; then
-    nmcli device modify "$nm_device" \
-        ipv4.method manual \
-        ipv4.addresses "$address/$prefix" \
-        ipv4.gateway "$gateway" \
-        ipv4.dns "$dns_csv" >/dev/null
+case "$address6" in
+    *:*) has_ipv6=1 ;;
+    *) ;;
+esac
+
+if [ "$has_ipv4" -eq 0 ] && [ "$has_ipv6" -eq 0 ]; then
+    log 'the bearer returned neither valid IPv4 nor IPv6 addresses'
+    exit 1
 fi
 
-ip link set wwan0 mtu "$mtu" up
-ip address replace "$address/$prefix" dev wwan0
-ip route replace "$gateway/32" dev wwan0
-ip route replace default via "$gateway" dev wwan0 metric 700
-log "applied bearer IPv4 configuration to wwan0"
+if [ "$has_ipv4" -eq 1 ]; then
+    dns_servers="$(
+        printf '%s\n' "$bearer_status" \
+            | awk -F '[[:space:]]*:[[:space:]]*' \
+                '$1 ~ /^bearer\.ipv4-config\.dns\.value\[[0-9]+\]$/ {print $2}'
+    )"
+    dns_csv=''
+    for dns_server in $dns_servers; do
+        case "$dns_server" in
+            *[!0-9.]*|'') continue ;;
+        esac
+        if [ -n "$dns_csv" ]; then
+            dns_csv="$dns_csv,$dns_server"
+        else
+            dns_csv="$dns_server"
+        fi
+    done
+
+    if [ -n "$dns_csv" ]; then
+        nmcli device modify "$nm_device" \
+            ipv4.method manual \
+            ipv4.addresses "$address/$prefix" \
+            ipv4.gateway "$gateway" \
+            ipv4.dns "$dns_csv" >/dev/null || true
+    fi
+
+    ip link set wwan0 mtu "$mtu" up
+    ip address replace "$address/$prefix" dev wwan0
+    ip route replace "$gateway/32" dev wwan0
+    ip route replace default via "$gateway" dev wwan0 metric 700
+    log "applied bearer IPv4 configuration to wwan0"
+fi
+
+if [ "$has_ipv6" -eq 1 ]; then
+    ip link set wwan0 up
+    if [ -n "$mtu6" ] && [ "$mtu6" -ge 1280 ] 2>/dev/null; then
+        ip link set wwan0 mtu "$mtu6" 2>/dev/null || true
+    fi
+    prefix6="${prefix6:-64}"
+    ip -6 address replace "$address6/$prefix6" dev wwan0
+    if [ -n "$gateway6" ] && [ "$gateway6" != '--' ]; then
+        ip -6 route replace default via "$gateway6" dev wwan0 metric 700 2>/dev/null || true
+    fi
+    log "applied bearer IPv6 configuration to wwan0"
+fi

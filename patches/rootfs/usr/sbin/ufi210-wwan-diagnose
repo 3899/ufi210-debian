@@ -1,0 +1,131 @@
+#!/bin/sh
+set -eu
+
+# ufi210-wwan-diagnose: Read-only, side-effect-free diagnostic tool for UFI210 / MSM8909
+# Collects WWAN netdev, NetworkManager, ModemManager, QMI WDS and remoteproc status with sensitive identity redaction.
+
+redact_stream() {
+    sed \
+        -e 's/\(modem\.3gpp\.imei[[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/' \
+        -e 's/\(modem\.generic\.equipment-identifier[[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/' \
+        -e 's/\(modem\.generic\.device-identifier[[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/' \
+        -e 's/\(modem\.cdma\.meid[[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/' \
+        -e 's/\(modem\.3gpp\.eps\.initial-bearer\.settings\.user[[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/' \
+        -e 's/\(modem\.3gpp\.eps\.initial-bearer\.settings\.password[[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/' \
+        -e 's/\(bearer\.properties\.user[[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/' \
+        -e 's/\(bearer\.properties\.password[[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/' \
+        -e 's/\(modem\.generic\.own-numbers\.value\[[0-9]*\][[:space:]]*:[[:space:]]*\).*/\1[REDACTED]/'
+}
+
+echo "=== SYSTEM ==="
+boot_id="$(cat /proc/sys/kernel/random/boot_id 2>/dev/null || echo 'unknown')"
+echo "boot_id: $boot_id"
+echo "timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || echo 'unknown')"
+echo "kernel: $(uname -r 2>/dev/null || echo 'unknown')"
+echo "topology: shared_wwan0"
+
+echo "=== NETDEV WWAN0 ==="
+for attr in operstate carrier flags mtu; do
+    attr_path="/sys/class/net/wwan0/$attr"
+    if [ -r "$attr_path" ]; then
+        echo "wwan0.$attr: $(cat "$attr_path" 2>/dev/null || echo 'unreadable')"
+    else
+        echo "wwan0.$attr: missing"
+    fi
+done
+ip -d link show dev wwan0 2>/dev/null || echo "ip -d link show wwan0: failed"
+ip -4 addr show dev wwan0 2>/dev/null || true
+ip -6 addr show dev wwan0 2>/dev/null || true
+ip -4 route show dev wwan0 2>/dev/null || true
+ip -6 route show dev wwan0 2>/dev/null || true
+
+echo "=== NETWORKMANAGER ==="
+if command -v nmcli >/dev/null 2>&1; then
+    nmcli -t -f DEVICE,TYPE,STATE,CONNECTION device 2>/dev/null || echo "nmcli device: failed"
+    nmcli -t -f NAME,UUID,TYPE,DEVICE connection show --active 2>/dev/null || echo "nmcli active connections: failed"
+else
+    echo "nmcli: not found"
+fi
+
+echo "=== MODEMMANAGER ==="
+if command -v mmcli >/dev/null 2>&1; then
+    mm_status="$(mmcli -m any --output-keyvalue 2>/dev/null || true)"
+    if [ -n "$mm_status" ]; then
+        printf '%s\n' "$mm_status" | redact_stream
+        bearer_indexes="$(
+            printf '%s\n' "$mm_status" \
+                | sed -n \
+                    -e 's#^modem\.generic\.bearers[[:space:]]*:[[:space:]]*/org/freedesktop/ModemManager1/Bearer/\([0-9][0-9]*\)[[:space:]]*$#\1#p' \
+                    -e 's#^modem\.generic\.bearers\.value\[[0-9][0-9]*\][[:space:]]*:[[:space:]]*/org/freedesktop/ModemManager1/Bearer/\([0-9][0-9]*\)[[:space:]]*$#\1#p'
+        )"
+        for bearer_idx in $bearer_indexes; do
+            echo "=== BEARER $bearer_idx ==="
+            mmcli --bearer="$bearer_idx" --output-keyvalue 2>/dev/null | redact_stream || true
+        done
+    else
+        echo "modem: not found or ModemManager not running"
+    fi
+else
+    echo "mmcli: not found"
+fi
+
+echo "=== QMI WDS ==="
+if command -v qmicli >/dev/null 2>&1 && [ -c /dev/wwan0qmi0 ]; then
+    timeout 5 qmicli -d /dev/wwan0qmi0 --device-open-proxy --wds-get-packet-service-status 2>/dev/null || echo "qmicli wds-get-packet-service-status: timed out or failed"
+    timeout 5 qmicli -d /dev/wwan0qmi0 --device-open-proxy --dms-get-operating-mode 2>/dev/null || echo "qmicli dms-get-operating-mode: timed out or failed"
+else
+    echo "qmicli or /dev/wwan0qmi0: unavailable"
+fi
+
+echo "=== MPSS REMOTEPROC & RPMSG ==="
+for remoteproc in /sys/class/remoteproc/remoteproc*; do
+    [ -d "$remoteproc" ] || continue
+    name="$(cat "$remoteproc/name" 2>/dev/null || echo 'unknown')"
+    state="$(cat "$remoteproc/state" 2>/dev/null || echo 'unknown')"
+    echo "remoteproc $(basename "$remoteproc"): name=$name state=$state"
+done
+
+if [ -d /sys/bus/rpmsg/devices ]; then
+    for endpoint in /sys/bus/rpmsg/devices/*; do
+        [ -e "$endpoint" ] || continue
+        ep_name="$(cat "$endpoint/name" 2>/dev/null || basename "$endpoint")"
+        ep_driver="$(readlink "$endpoint/driver" 2>/dev/null | awk -F/ '{print $NF}' || echo 'none')"
+        echo "rpmsg_endpoint: $ep_name (driver=$ep_driver)"
+    done
+fi
+
+echo "=== DATA PLANE HEALTH EVALUATION ==="
+mm_connected="no"
+if command -v mmcli >/dev/null 2>&1; then
+    if mmcli -m any --output-keyvalue 2>/dev/null | grep -q '^modem\.generic\.state[[:space:]]*:[[:space:]]*connected'; then
+        mm_connected="yes"
+    fi
+fi
+
+wwan0_up="no"
+if [ -r /sys/class/net/wwan0/flags ]; then
+    flags="$(cat /sys/class/net/wwan0/flags 2>/dev/null || echo '0')"
+    # IFF_UP = 0x1
+    if [ "$((flags & 1))" -eq 1 ]; then
+        wwan0_up="yes"
+    fi
+fi
+
+ip_assigned="no"
+if ip -4 addr show dev wwan0 2>/dev/null | grep -q 'inet '; then
+    ip_assigned="ipv4"
+elif ip -6 addr show dev wwan0 2>/dev/null | grep -q 'inet6 '; then
+    ip_assigned="ipv6"
+fi
+
+echo "health.mm_connected: $mm_connected"
+echo "health.wwan0_admin_up: $wwan0_up"
+echo "health.ip_assigned: $ip_assigned"
+
+if [ "$mm_connected" = "yes" ] && [ "$wwan0_up" = "yes" ] && [ "$ip_assigned" != "no" ]; then
+    echo "health.overall_status: HEALTHY"
+elif [ "$mm_connected" = "yes" ] && [ "$wwan0_up" = "no" ]; then
+    echo "health.overall_status: STALE_BEARER_WWAN0_DOWN"
+else
+    echo "health.overall_status: DISCONNECTED"
+fi

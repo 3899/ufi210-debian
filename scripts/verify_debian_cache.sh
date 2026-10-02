@@ -28,6 +28,7 @@ MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-prepare"
 MODEM_REGISTER_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-register"
 MODEM_TIME_SYNC_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-time-sync"
 WWAN_IP_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wwan-ip"
+WWAN_DIAGNOSE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-wwan-diagnose"
 NMTUI_WRAPPER="$PROJECT_ROOT/patches/rootfs/usr/local/bin/nmtui"
 REBOOT_COMPAT_SOURCE="$PROJECT_ROOT/src/reboot-compat.c"
 WIFI_AP_PROFILE="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection"
@@ -37,6 +38,9 @@ WCNSS_FIRMWARE_DIR="$PROJECT_ROOT/resource/backup/0.modem/image"
 MPSS_FIRMWARE_DIR="$PROJECT_ROOT/resource/backup/0.modem/image"
 WCNSS_NV="$PROJECT_ROOT/resource/backup/persist/WCNSS_qcom_wlan_nv.bin"
 ROOTFS_TARBALL="$OUT_DIR/debian-bookworm-armhf-${TARGET_PARTITION}-rootfs.tar.xz"
+if [[ -s "$OUT_DIR/rootfs.tar.xz" ]]; then
+    ROOTFS_TARBALL="$OUT_DIR/rootfs.tar.xz"
+fi
 PACKAGE_LIST="$OUT_DIR/packages.txt"
 MANIFEST="$OUT_DIR/BUILD-MANIFEST.txt"
 WCNSS_MANIFEST="$OUT_DIR/WCNSS-FIRMWARE-MANIFEST.txt"
@@ -157,7 +161,7 @@ for command_name in awk cmp cpio cut dd debugfs dumpe2fs e2fsck fdtget file grep
 done
 for required in "$BOOT_IMAGE" "$INITRAMFS" "$ROOTFS_TARBALL" "$PACKAGE_LIST" \
     "$MANIFEST" "$WCNSS_MANIFEST" "$MPSS_MANIFEST" "$WCNSS_START_SCRIPT" \
-    "$MPSS_START_SCRIPT" "$MODEM_PREPARE_SCRIPT" "$MODEM_REGISTER_SCRIPT" "$WWAN_IP_SCRIPT" \
+    "$MPSS_START_SCRIPT" "$MODEM_PREPARE_SCRIPT" "$MODEM_REGISTER_SCRIPT" "$WWAN_IP_SCRIPT" "$WWAN_DIAGNOSE_SCRIPT" \
     "$NMTUI_WRAPPER" "$REBOOT_COMPAT_SOURCE" "$WIFI_AP_PROFILE" "$USB_MANAGEMENT_CONF" "$WIFI_MAC_CONF" \
     "$INITRAMFS_BUILD_SCRIPT" "$INODE_TIME_TOOL" \
     "$INITRAMFS_INIT" "$QCDT_BUILD_SCRIPT" "$QCDT" "$USB_GADGET_SCRIPT" "$USB_WATCHDOG_SCRIPT" \
@@ -345,6 +349,7 @@ check_sha256 modem_prepare_script_sha256 "$MODEM_PREPARE_SCRIPT"
 check_sha256 modem_register_script_sha256 "$MODEM_REGISTER_SCRIPT"
 check_sha256 modem_time_sync_script_sha256 "$MODEM_TIME_SYNC_SCRIPT"
 check_sha256 wwan_ip_script_sha256 "$WWAN_IP_SCRIPT"
+check_sha256 wwan_diagnose_script_sha256 "$WWAN_DIAGNOSE_SCRIPT"
 check_sha256 nmtui_wrapper_sha256 "$NMTUI_WRAPPER"
 check_sha256 reboot_compat_source_sha256 "$REBOOT_COMPAT_SOURCE"
 check_sha256 wifi_ap_profile_sha256 "$WIFI_AP_PROFILE"
@@ -709,7 +714,7 @@ if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
         "root=/dev/mapper/ufi210-root" \
         "system_sectors=$SYSTEM_PARTITION_SECTORS" \
         "cache_sectors=$CACHE_PARTITION_SECTORS" \
-        "userdata_sectors=$USERDATA_PARTITION_SECTORS" \
+        'userdata_sectors="$(cat "/sys/class/block/${userdata_dev##*/}/size")"' \
         "system_start=$SYSTEM_PARTITION_START" \
         "cache_start=$CACHE_PARTITION_START" \
         "userdata_lba=$USERDATA_PARTITION_START" \
@@ -828,6 +833,7 @@ for required_path in \
     ./usr/sbin/zu02-modem-prepare \
     ./usr/sbin/zu02-modem-register \
     ./usr/sbin/ufi210-modem-time-sync \
+    ./usr/sbin/ufi210-wwan-diagnose \
     ./usr/sbin/zu02-firewall \
     ./usr/sbin/zu02-mpss-start \
     ./usr/sbin/zu02-usb-gadget \
@@ -1070,13 +1076,16 @@ grep -Fq 'modem\.generic\.bearers[[:space:]]*:' <<<"$wwan_ip_script" \
     || die "WWAN dispatcher 未兼容单值 bearer 列表"
 grep -Fq 'modem\.generic\.bearers\.value\[[0-9][0-9]*\]' <<<"$wwan_ip_script" \
     || die "WWAN dispatcher 未兼容多值 bearer 列表"
-grep -q '^ip address replace "$address/$prefix" dev wwan0$' <<<"$wwan_ip_script" \
+grep -q '^[[:space:]]*ip address replace "$address/$prefix" dev wwan0$' <<<"$wwan_ip_script" \
     || die "WWAN dispatcher 未配置 wwan0 地址"
-grep -q '^ip route replace default via "$gateway" dev wwan0 metric 700$' <<<"$wwan_ip_script" \
+grep -q '^[[:space:]]*ip route replace default via "$gateway" dev wwan0 metric 700$' <<<"$wwan_ip_script" \
     || die "WWAN dispatcher 未配置默认路由"
 if grep -Eqi 'ctnet|mycdma|vnet\.mobi|gsm\.(username|password)' <<<"$wwan_ip_script"; then
     die "纯 Debian WWAN dispatcher 不得预置 APN 或运营商凭据"
 fi
+wwan_diagnose_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-wwan-diagnose)"
+grep -q 'health\.overall_status' <<<"$wwan_diagnose_script" \
+    || die "WWAN 诊断脚本缺少健康判定"
 if grep -Fqx './etc/NetworkManager/dispatcher.d/01-ifupdown' "$tmp_dir/rootfs-files.txt"; then
     die "rootfs 不应保留会拒绝 NetworkManager reapply 动作的 ifupdown dispatcher"
 fi
@@ -1208,7 +1217,7 @@ grep -q '^table inet zu02_firewall {$' <<<"$firewall_rules" \
     || die "缺少独立 ZU02 nftables 表"
 grep -q 'iifname "lo" accept' <<<"$firewall_rules" \
     || die "管理面防火墙未保留 loopback"
-management_drop_line="$(grep -n 'iifname != "usb0" tcp dport { 22, 5555 } counter drop' <<<"$firewall_rules" | cut -d: -f1)"
+management_drop_line="$(grep -n 'iifname != { "usb0", "wlan0" } tcp dport { 22, 5555 } counter drop' <<<"$firewall_rules" | cut -d: -f1)"
 wwan_established_line="$(grep -n 'iifname "wwan0" ct state established,related accept' <<<"$firewall_rules" | cut -d: -f1)"
 [[ "$management_drop_line" =~ ^[0-9]+$ && "$wwan_established_line" =~ ^[0-9]+$ \
     && "$management_drop_line" -lt "$wwan_established_line" ]] \

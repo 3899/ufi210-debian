@@ -9,10 +9,10 @@
 ## 系统内容
 
 - 原厂 aboot 通过 QCDT v3 直接启动 DW01 主线 DTB，无需两级 RAM 启动。
-- Debian rootfs 通过 `dm-linear` 顺序使用 system、cache 和 userdata，ext4 总容量为
-  3,485,237,248 字节（约 3.25 GiB）。
+- Debian rootfs 通过 `dm-linear` 顺序使用 system、cache 和 userdata，ext4 基础容量约 3.25 GiB。
+  initramfs 启动自适应探测 userdata 分区实际大小并自动 resize2fs 扩容至设备物理存储上限。
 - boot、system、cache 和 userdata 均持久写入；断电或普通重启不再返回 Android。
-- 根文件系统在构建时已达到最终大小，不依赖首启扩容，也没有独立 `/data`。
+- 没有独立 `/data`，所有应用与数据直接使用大根卷空间。
 - 启用 `noatime` 和每周 `fstrim.timer`，不默认使用 eMMC swap。
 - boot cmdline 固定 `reboot=warm`，避免无电池设备 cold reboot 后无法自行上电。
 - 内核包含 MSM8909 IMEM reboot-mode，rootfs 提供 `/system/bin/reboot` 的 `RESTART2` 兼容入口。
@@ -25,11 +25,13 @@
 - Debian 12 Bookworm armhf 与 Linux `7.0.0-msm8909`。
 - QCDT v3：30 条 MSM8909 匹配记录，全部指向唯一 DW01 DTB。
 - 持久 Debian rootfs 和普通 warm reboot；真实断电冷启动作为本候选发布前的最后一项实机验收。
-- 固定 RNDIS `192.168.68.1` 与 ACM、RNDIS 上的 TCP ADB 和 SSH；RNDIS MAC 按设备稳定派生。
+- 固定 RNDIS `192.168.68.1` 与 ACM、RNDIS 及 Wi-Fi 局域网上的 TCP ADB (5555) 和 SSH (22)；
+  附带 Windows 一键连接工具 `connect-adb.bat`；RNDIS MAC 按设备稳定派生。
 - NetworkManager、完整 `nmcli`、简体中文 `nmtui`。
 - WCNSS/WCN36XX、Wi-Fi 扫描、WPA2 AP 与 DHCP。
 - MPSS、QRTR、RMTFS、BAM-DMUX 和 ModemManager。
-- USB-only 管理防火墙、NetworkManager nftables NAT。
+- 局域网与管理防火墙：SSH 22 与 TCP ADB 5555 开放于 `usb0` 与 `wlan0`，严格丢弃 `wwan0` 蜂窝入站；
+  NetworkManager nftables NAT。
 - 75°C 被动降频阈值和 cpufreq cooling。
 - 前一版 system/data/boot 候选已完成两次独立构建、端到端持久安装和 boot 回读；本版大根卷
   另行执行三段镜像的逐字节复现和真机回归。
@@ -41,7 +43,7 @@
 - 20 轮 LTE 数据连接均获得 IPv4，公网 ICMP/TCP 和运营商 DNS 通过；每轮断开 bearer、删除
   临时连接，并核对五个敏感分区哈希不变。
 - 隔离下游客户端的 NetworkManager nftables NAT、公网访问、运营商 DNS、网关 dnsmasq 和
-  非 USB 管理端口隔离通过。
+  非 USB/Wi-Fi 局域网管理端口隔离通过。
 - QMI DMS 启动校时通过，设备时钟与宿主偏差 1 秒，`systemd` failed 为 0。
 
 ## 写入边界
@@ -57,7 +59,7 @@
 - 标准 `adb reboot bootloader` 不适用于 Debian `adbd`；项目提供的 ADB shell 兼容入口已完成真机回归。
 - LTE 数据、DNS 和 NAT 已完成回归；长期蜂窝持续流量耐久性不在首个候选声明范围内。
 - 会建立蜂窝数据连接的测试脚本必须显式传入 `-AllowCellularDataUsage`，运行前需确认 SIM 资费。
-- TCP adbd 不提供 Android 式客户端授权，仅允许经 `usb0` 管理网络访问。
+- TCP adbd 不提供 Android 式客户端授权，仅允许经 `usb0` 与 `wlan0` 局域网访问，蜂窝 `wwan0` 严格阻断。
 - 快速反复切换 AP/managed 时，WCN36xx 固件可能返回精确的扫描停止或 STA 清理告警；验收脚本会计数，
   并继续强制核对模式恢复、扫描、BSSID、remoteproc 和 systemd 状态。其他 WCN36xx 错误仍视为失败。
 - IPv6、短信、SIM 热插拔、多 Wi-Fi 客户端和故障注入不在首个候选声明范围内。

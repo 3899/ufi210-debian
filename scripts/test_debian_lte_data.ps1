@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)]
     [ValidatePattern('^[A-Za-z0-9][A-Za-z0-9.-]{0,62}$')]
@@ -58,7 +58,8 @@ function Invoke-Native {
 
 function Invoke-AdbShell {
     param([string]$Command, [switch]$AllowFailure)
-    return Invoke-Native $Adb @("-s", $AdbSerial, "shell", $Command) -AllowFailure:$AllowFailure
+    $normalizedCommand = $Command.Replace("`r`n", "`n").Replace("`r", "`n")
+    return Invoke-Native $Adb @("-s", $AdbSerial, "shell", $normalizedCommand) -AllowFailure:$AllowFailure
 }
 
 function Protect-Identifier {

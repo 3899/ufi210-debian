@@ -97,6 +97,7 @@ MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-prepare"
 MODEM_REGISTER_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-register"
 MODEM_TIME_SYNC_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-time-sync"
 WWAN_IP_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wwan-ip"
+WWAN_DIAGNOSE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-wwan-diagnose"
 NMTUI_WRAPPER="$PROJECT_ROOT/patches/rootfs/usr/local/bin/nmtui"
 REBOOT_COMPAT_SOURCE="$PROJECT_ROOT/src/reboot-compat.c"
 WIFI_AP_PROFILE="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection"
@@ -187,7 +188,7 @@ for required in "$KERNEL" "$DTB" "$MODULES" "$INITRAMFS_BUILD_SCRIPT" "$INODE_TI
     "$QCDT_BUILD_SCRIPT" \
     "$USB_GADGET_SCRIPT" "$USB_WATCHDOG_SCRIPT" "$USB_ADB_EXPERIMENT_SCRIPT" \
     "$WCNSS_START_SCRIPT" "$MPSS_START_SCRIPT" \
-    "$MODEM_PREPARE_SCRIPT" "$MODEM_REGISTER_SCRIPT" "$WWAN_IP_SCRIPT" \
+    "$MODEM_PREPARE_SCRIPT" "$MODEM_REGISTER_SCRIPT" "$MODEM_TIME_SYNC_SCRIPT" "$WWAN_IP_SCRIPT" "$WWAN_DIAGNOSE_SCRIPT" \
     "$NMTUI_WRAPPER" "$REBOOT_COMPAT_SOURCE" "$WIFI_AP_PROFILE" "$USB_MANAGEMENT_CONF" "$WIFI_MAC_CONF" \
     "$WCNSS_NV" "$REFERENCE_BOOT"; do
     [[ -s "$required" ]] || die "缺少输入文件：$required"
@@ -212,8 +213,13 @@ fi
     || die "缺少 Debian archive keyring：$DEBIAN_KEYRING；请先运行 scripts/install_debian_bookworm_keyring.sh"
 [[ "$IMAGE_SIZE_MB" =~ ^[0-9]+$ ]] || die "IMAGE_SIZE_MB 必须是整数"
 (( IMAGE_SIZE_MB > 0 )) || die "IMAGE_SIZE_MB 必须大于 0"
-(( ROOTFS_IMAGE_SIZE < TARGET_PARTITION_SIZE )) \
-    || die "${TARGET_PARTITION} 镜像必须小于目标设备 $TARGET_PARTITION_SIZE 字节"
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    (( ROOTFS_IMAGE_SIZE <= TARGET_PARTITION_SIZE )) \
+        || die "${TARGET_PARTITION} 镜像不能大于目标设备 $TARGET_PARTITION_SIZE 字节"
+else
+    (( ROOTFS_IMAGE_SIZE < TARGET_PARTITION_SIZE )) \
+        || die "${TARGET_PARTITION} 镜像必须小于目标设备 $TARGET_PARTITION_SIZE 字节"
+fi
 [[ "$DATA_IMAGE_SIZE_MB" =~ ^[0-9]+$ ]] || die "DATA_IMAGE_SIZE_MB 必须是整数"
 (( DATA_IMAGE_SIZE_MB > 0 && DATA_IMAGE_SIZE_MB * 1048576 < DATA_PARTITION_SIZE )) \
     || die "data 镜像必须小于 userdata 分区 $DATA_PARTITION_SIZE 字节"
@@ -237,6 +243,7 @@ modem_prepare_script_sha256="$(sha256sum "$MODEM_PREPARE_SCRIPT" | awk '{print $
 modem_register_script_sha256="$(sha256sum "$MODEM_REGISTER_SCRIPT" | awk '{print $1}')"
 modem_time_sync_script_sha256="$(sha256sum "$MODEM_TIME_SYNC_SCRIPT" | awk '{print $1}')"
 wwan_ip_script_sha256="$(sha256sum "$WWAN_IP_SCRIPT" | awk '{print $1}')"
+wwan_diagnose_script_sha256="$(sha256sum "$WWAN_DIAGNOSE_SCRIPT" | awk '{print $1}')"
 nmtui_wrapper_sha256="$(sha256sum "$NMTUI_WRAPPER" | awk '{print $1}')"
 reboot_compat_source_sha256="$(sha256sum "$REBOOT_COMPAT_SOURCE" | awk '{print $1}')"
 wifi_ap_profile_sha256="$(sha256sum "$WIFI_AP_PROFILE" | awk '{print $1}')"
@@ -290,6 +297,7 @@ if [[ "$FORCE" != "1" && "$rootfs_artifacts_present" == 1 \
     && grep -qx "modem_register_script_sha256=$modem_register_script_sha256" "$MANIFEST" \
     && grep -qx "modem_time_sync_script_sha256=$modem_time_sync_script_sha256" "$MANIFEST" \
     && grep -qx "wwan_ip_script_sha256=$wwan_ip_script_sha256" "$MANIFEST" \
+    && grep -qx "wwan_diagnose_script_sha256=$wwan_diagnose_script_sha256" "$MANIFEST" \
     && grep -qx "nmtui_wrapper_sha256=$nmtui_wrapper_sha256" "$MANIFEST" \
     && grep -qx "reboot_compat_source_sha256=$reboot_compat_source_sha256" "$MANIFEST" \
     && grep -qx "wifi_ap_profile_sha256=$wifi_ap_profile_sha256" "$MANIFEST" \
@@ -551,6 +559,7 @@ install -m 0755 "$MODEM_PREPARE_SCRIPT" "$ROOTFS/usr/sbin/zu02-modem-prepare"
 install -m 0755 "$MODEM_REGISTER_SCRIPT" "$ROOTFS/usr/sbin/zu02-modem-register"
 install -m 0755 "$MODEM_TIME_SYNC_SCRIPT" "$ROOTFS/usr/sbin/ufi210-modem-time-sync"
 install -m 0755 "$WWAN_IP_SCRIPT" "$ROOTFS/etc/NetworkManager/dispatcher.d/90-zu02-wwan-ip"
+install -m 0755 "$WWAN_DIAGNOSE_SCRIPT" "$ROOTFS/usr/sbin/ufi210-wwan-diagnose"
 install -m 0755 "$NMTUI_WRAPPER" "$ROOTFS/usr/local/bin/nmtui"
 arm-linux-gnueabihf-gcc \
     -Os -static -fno-ident -fno-asynchronous-unwind-tables \
@@ -792,7 +801,7 @@ table inet zu02_firewall {
     chain input {
         type filter hook input priority filter; policy accept;
         iifname "lo" accept
-        iifname != "usb0" tcp dport { 22, 5555 } counter drop
+        iifname != { "usb0", "wlan0" } tcp dport { 22, 5555 } counter drop
         iifname "wwan0" ct state established,related accept
         iifname "wwan0" counter drop
     }
@@ -1007,8 +1016,13 @@ rootfs_free_bytes=$((rootfs_block_size * rootfs_free_blocks))
 (( rootfs_free_bytes >= MIN_ROOTFS_FREE_BYTES )) \
     || die "ext4 仅剩 $rootfs_free_bytes 字节，低于最低要求 $MIN_ROOTFS_FREE_BYTES 字节"
 image_bytes="$(stat -c %s "$IMAGE")"
-(( image_bytes < TARGET_PARTITION_SIZE )) \
-    || die "rootfs 镜像不小于目标 ${TARGET_PARTITION} 分区"
+if [[ "$TARGET_PARTITION" == large-rootfs ]]; then
+    (( image_bytes <= TARGET_PARTITION_SIZE )) \
+        || die "rootfs 镜像大于目标 ${TARGET_PARTITION} 分区"
+else
+    (( image_bytes < TARGET_PARTITION_SIZE )) \
+        || die "rootfs 镜像不小于目标 ${TARGET_PARTITION} 分区"
+fi
 
 rootfs_system_image_bytes=0
 rootfs_cache_image_bytes=0
@@ -1143,6 +1157,7 @@ tarball_sha256="$(sha256sum "$ROOTFS_TARBALL" | awk '{print $1}')"
     printf 'modem_register_script_sha256=%s\n' "$modem_register_script_sha256"
     printf 'modem_time_sync_script_sha256=%s\n' "$modem_time_sync_script_sha256"
     printf 'wwan_ip_script_sha256=%s\n' "$wwan_ip_script_sha256"
+    printf 'wwan_diagnose_script_sha256=%s\n' "$wwan_diagnose_script_sha256"
     printf 'nmtui_wrapper_sha256=%s\n' "$nmtui_wrapper_sha256"
     printf 'reboot_compat_source_sha256=%s\n' "$reboot_compat_source_sha256"
     printf 'reboot_compat_binary_sha256=%s\n' "$reboot_compat_binary_sha256"

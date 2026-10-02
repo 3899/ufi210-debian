@@ -63,7 +63,7 @@ audit_source_tree() {
     while IFS= read -r -d '' path; do
         rel="${path#"$TARGET"/}"
         case "$rel" in
-            .dockerignore|.gitattributes|.gitignore|Dockerfile|LICENSE|README.md|SECURITY.md|TODO.md|build.sh|install.bat|enter-fastboot.bat|resource/README.md) ;;
+            .dockerignore|.gitattributes|.gitignore|Dockerfile|LICENSE|README.md|SECURITY.md|build.sh|install.bat|enter-fastboot.bat|connect-adb.bat|resource/README.md) ;;
             docker/kernel/Dockerfile) ;;
             .github/workflows/*.yml) ;;
             configs/*.config) ;;
@@ -113,7 +113,7 @@ audit_binary_tree() {
     while IFS= read -r -d '' path; do
         rel="${path#"$TARGET"/}"
         case "$rel" in
-            LICENSE|LICENSING.md|README.md|RELEASE-NOTES.md|INSTALL-MANIFEST.txt|SHA256SUMS|install.bat|enter-fastboot.bat|flash.bat|flash.sh) ;;
+            LICENSE|LICENSING.md|README.md|RELEASE-NOTES.md|INSTALL-MANIFEST.txt|SHA256SUMS|install.bat|enter-fastboot.bat|connect-adb.bat|flash.bat|flash.sh) ;;
             system.img|cache.img|userdata.img|boot.img|debian-bookworm-armhf-large-rootfs-system.img|debian-bookworm-armhf-large-rootfs-cache.img|debian-bookworm-armhf-large-rootfs-userdata.img|boot-debian-large-rootfs.img) ;;
             LICENSES/MIT.txt|LICENSES/GPL-2.0-only.txt) ;;
             scripts/install_debian_large_rootfs.ps1|scripts/enter_fastboot.ps1) ;;
@@ -157,7 +157,7 @@ audit_binary_tree() {
         'architecture=armhf' \
         'debian_suite=bookworm' \
         'target_partition=large-rootfs' \
-        'target_partition_bytes=3485240832' \
+        'target_partition_bytes=3401351168' \
         'persistent_partitions=boot,system,cache,userdata' \
         'android_system_partition=overwritten' \
         'android_cache_partition=overwritten' \
@@ -166,23 +166,23 @@ audit_binary_tree() {
         'rootfs_device=/dev/mapper/ufi210-root' \
         'rootfs_label=ufi210-root' \
         'rootfs_uuid=89090000-0000-4000-8000-000000000031' \
-        'rootfs_image_bytes=3485237248' \
+        'rootfs_image_bytes=3401351168' \
         'rootfs_segments=complete-prebuilt-filesystem' \
         'data_mount=none' \
         'adbd_shell_tmpdir=/data/local/tmp' \
         'adbd_shell_tmpdir_storage=rootfs' \
         'storage_layout=dm-linear-system-cache-userdata' \
         'dm_name=ufi210-root' \
-        'dm_total_sectors=6807111' \
-        'dm_total_bytes=3485240832' \
-        'dm_filesystem_bytes=3485237248' \
+        'dm_total_sectors=6643264' \
+        'dm_total_bytes=3401351168' \
+        'dm_filesystem_bytes=3401351168' \
         'dm_system_sectors=2516584' \
         'dm_cache_sectors=524288' \
-        'dm_userdata_sectors=3766239' \
+        'dm_userdata_sectors=3602399' \
         'dm_system_start=461920' \
         'dm_cache_start=3044040' \
         'dm_userdata_start=3803136' \
-        'dm_table=0 2516584 linear PARTLABEL=system 0;2516584 524288 linear PARTLABEL=cache 0;3040872 3766239 linear PARTLABEL=userdata 0' \
+        'dm_table=0 2516584 linear PARTLABEL=system 0;2516584 524288 linear PARTLABEL=cache 0;3040872 3602392 linear PARTLABEL=userdata 0' \
         'gpt_changes=none' \
         'cache_previous_contents=erased-by-installer' \
         'userdata_previous_contents=erased-by-installer' \
