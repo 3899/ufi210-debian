@@ -12,7 +12,8 @@ touchscreen, keys and external SD are intentionally omitted.
  arch/arm/boot/dts/qcom/Makefile                       |  1 +
  arch/arm/boot/dts/qcom/qcom-msm8909.dtsi              | 17 ++++
  .../dts/qcom/qcom-msm8909-zu02-dw01.dts               | 97 +++++++++++++++++++
- 4 files changed, 116 insertions(+)
+ drivers/net/wwan/rpmsg_wwan_ctrl.c                    |  1 +
+ 5 files changed, 117 insertions(+)
  create mode 100644 arch/arm/boot/dts/qcom/qcom-msm8909-zu02-dw01.dts
 
 diff --git a/Documentation/devicetree/bindings/sram/qcom,imem.yaml b/Documentation/devicetree/bindings/sram/qcom,imem.yaml
@@ -170,5 +171,18 @@ index 000000000000..333333333333
 +		regulator-max-microvolt = <3075000>;
 +	};
 +};
+
+diff --git a/drivers/net/wwan/rpmsg_wwan_ctrl.c b/drivers/net/wwan/rpmsg_wwan_ctrl.c
+index 26756ff0e44d..c78491bb4f68 100644
+--- a/drivers/net/wwan/rpmsg_wwan_ctrl.c
++++ b/drivers/net/wwan/rpmsg_wwan_ctrl.c
+@@ -148,6 +148,7 @@ static void rpmsg_wwan_ctrl_remove(struct rpmsg_device *rpdev)
+ static const struct rpmsg_device_id rpmsg_wwan_ctrl_id_table[] = {
+ 	/* RPMSG channels for Qualcomm SoCs with integrated modem */
+ 	{ .name = "DATA5_CNTL", .driver_data = WWAN_PORT_QMI },
++	{ .name = "DATA6_CNTL", .driver_data = WWAN_PORT_QMI },
+ 	{ .name = "DATA4", .driver_data = WWAN_PORT_AT },
+ 	{ .name = "DATA1", .driver_data = WWAN_PORT_AT },
+ 	{},
 -- 
 2.51.1

@@ -3,6 +3,9 @@ set -eu
 
 open_wwan_link() {
     ip link set wwan0 up
+    if [ -e /sys/class/net/wwan1 ]; then
+        ip link set wwan1 up
+    fi
 }
 
 if [ -e /dev/wwan0qmi0 ] && [ -e /sys/class/net/wwan0 ]; then
@@ -17,8 +20,14 @@ modprobe rpmsg_wwan_ctrl
 attempt=0
 while [ "$attempt" -lt 45 ]; do
     attempt=$((attempt + 1))
+    # 1. 打开主通道 0 (DATA5_CNTL -> wwan0)
     if timeout 10 qmicli -d qrtr://0 \
         --dpm-open-port='ctrl-ep-type=embedded,ctrl-ep-iface-number=0,ctrl-port-name=DATA5_CNTL,hw-data-ep-type=bam-dmux,hw-data-ep-iface-number=0,hw-data-rx-id=5,hw-data-tx-id=4'; then
+
+        # 2. 对齐 410：打开副通道 1 (DATA6_CNTL -> wwan1)
+        timeout 5 qmicli -d qrtr://0 \
+            --dpm-open-port='ctrl-ep-type=embedded,ctrl-ep-iface-number=0,ctrl-port-name=DATA6_CNTL,hw-data-ep-type=bam-dmux,hw-data-ep-iface-number=1,hw-data-rx-id=5,hw-data-tx-id=4' || true
+
         break
     fi
     sleep 1
@@ -27,13 +36,21 @@ done
 attempt=0
 while [ "$attempt" -lt 20 ]; do
     if [ -e /dev/wwan0qmi0 ] && [ -e /sys/class/net/wwan0 ]; then
-        open_wwan_link
-        echo 'zu02-modem-prepare: QMI and BAM-DMUX ports are ready'
-        exit 0
+        if [ -e /dev/wwan0qmi1 ] && [ -e /sys/class/net/wwan1 ]; then
+            open_wwan_link
+            echo 'zu02-modem-prepare: Dual QMI and BAM-DMUX ports (wwan0, wwan1) are ready'
+            exit 0
+        fi
     fi
     attempt=$((attempt + 1))
     sleep 1
 done
+
+if [ -e /dev/wwan0qmi0 ] && [ -e /sys/class/net/wwan0 ]; then
+    open_wwan_link
+    echo 'zu02-modem-prepare: Primary QMI and BAM-DMUX port (wwan0) is ready'
+    exit 0
+fi
 
 echo 'zu02-modem-prepare: QMI control or BAM-DMUX net port did not appear' >&2
 exit 1
