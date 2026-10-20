@@ -6,6 +6,7 @@ C=$G/configs/c.1
 UDC="$(ls /sys/class/udc 2>/dev/null | head -n 1 || true)"
 RNDIS_DEV_ADDR=
 RNDIS_HOST_ADDR=
+USB_SERIAL=
 
 derive_rndis_addresses() {
     seed=
@@ -22,6 +23,7 @@ derive_rndis_addresses() {
     fi
     [ -n "$seed" ] || seed=ufi210
 
+    USB_SERIAL="$seed"
     suffix="$(printf '%s' "$seed" | sha256sum | cut -c1-10 | sed 's/../&:/g; s/:$//')"
     RNDIS_DEV_ADDR="02:$suffix"
     RNDIS_HOST_ADDR="06:$suffix"
@@ -46,7 +48,8 @@ can_reuse_active_gadget() {
         0x[dD]001) ;;
         *) return 1 ;;
     esac
-    [ "$(cat "$G/strings/0x409/serialnumber" 2>/dev/null || true)" = "ZU02-DW01" ] || return 1
+    [ -n "$USB_SERIAL" ] || return 1
+    [ "$(cat "$G/strings/0x409/serialnumber" 2>/dev/null || true)" = "$USB_SERIAL" ] || return 1
     [ -L "$C/rndis.usb0" ] || return 1
     [ -L "$C/acm.usb0" ] || return 1
     [ "$(find "$C" -maxdepth 1 -type l | wc -l)" -eq 2 ] || return 1
@@ -94,9 +97,9 @@ setup() {
     echo 0xEF > "$G/bDeviceClass"
     echo 0x02 > "$G/bDeviceSubClass"
     echo 0x01 > "$G/bDeviceProtocol"
-    echo ZU02 > "$G/strings/0x409/manufacturer"
-    echo 'DW01 Debian' > "$G/strings/0x409/product"
-    echo ZU02-DW01 > "$G/strings/0x409/serialnumber"
+    echo UFI210 > "$G/strings/0x409/manufacturer"
+    echo 'UFI210 Debian' > "$G/strings/0x409/product"
+    echo "$USB_SERIAL" > "$G/strings/0x409/serialnumber"
     echo 'RNDIS + ACM' > "$C/strings/0x409/configuration"
     echo 250 > "$C/MaxPower"
 

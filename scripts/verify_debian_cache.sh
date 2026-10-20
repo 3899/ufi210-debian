@@ -422,7 +422,7 @@ grep -q '^exec switch_root /sysroot /sbin/init$' "$INITRAMFS_INIT" \
     || die "nmtui 简体中文 locale 不匹配"
 [[ "$(manifest_value wifi_ap_profile)" == "preinstalled-disabled" ]] \
     || die "Wi-Fi AP 预置策略不匹配"
-[[ "$(manifest_value wifi_ap_ssid)" == "ZU02-Debian" ]] \
+[[ "$(manifest_value wifi_ap_ssid)" == "SimAdmin" ]] \
     || die "Wi-Fi AP 默认 SSID 不匹配"
 [[ "$(manifest_value wifi_ap_ipv4)" == "192.168.69.1/24" ]] \
     || die "Wi-Fi AP 默认地址不匹配"
@@ -908,8 +908,8 @@ grep -q '^RemainAfterExit=yes$' <<<"$gadget_service" || die "USB gadget 服务�
 gadget_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-usb-gadget)"
 grep -q 'echo MSFT100.*os_desc/qw_sign' <<<"$gadget_script" || die "USB gadget 缺少 MSFT100 描述符"
 grep -q 'echo 5162001.*sub_compatible_id' <<<"$gadget_script" || die "USB gadget 缺少 RNDIS 子兼容标识"
-grep -q '^    echo ZU02-DW01 > "\$G/strings/0x409/serialnumber"$' <<<"$gadget_script" \
-    || die "USB gadget 序列号不匹配"
+grep -q '^    echo "\$USB_SERIAL" > "\$G/strings/0x409/serialnumber"$' <<<"$gadget_script" \
+    || die "USB gadget 序列号未动态绑定硬件种子"
 grep -q '^    echo 0xD001 > "\$G/idProduct"$' <<<"$gadget_script" \
     || die "USB gadget product ID 不是已验证的 D001"
 grep -Fq 'androidboot.serialno=*)' <<<"$gadget_script" \
@@ -1159,12 +1159,12 @@ grep -q '^exec /usr/bin/nmtui "$@"$' <<<"$nmtui_wrapper" \
     "$(manifest_value nmtui_wrapper_sha256)" ]] || die "nmtui 包装器输入哈希不匹配"
 wifi_ap_profile="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection)"
 for profile_line in \
-    'id=ZU02 Wi-Fi AP' \
+    'id=SimAdmin Wi-Fi AP' \
     'interface-name=wlan0' \
     'autoconnect=false' \
     'mode=ap' \
     'cloned-mac-address=stable' \
-    'ssid=ZU02-Debian' \
+    'ssid=SimAdmin' \
     'key-mgmt=wpa-psk' \
     'address1=192.168.69.1/24' \
     'method=shared' \

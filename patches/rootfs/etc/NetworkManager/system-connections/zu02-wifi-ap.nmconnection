@@ -1,5 +1,5 @@
 [connection]
-id=ZU02 Wi-Fi AP
+id=SimAdmin Wi-Fi AP
 uuid=89090000-0000-4000-8000-000000000069
 type=wifi
 interface-name=wlan0
@@ -11,7 +11,7 @@ channel=6
 cloned-mac-address=stable
 mode=ap
 powersave=2
-ssid=ZU02-Debian
+ssid=SimAdmin
 
 [wifi-security]
 key-mgmt=wpa-psk
