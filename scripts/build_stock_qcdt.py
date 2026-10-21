@@ -55,7 +55,9 @@ def build_qcdt_v3(records: list[dict], dtb: bytes, page_size: int) -> bytes:
     return bytes(output)
 
 
-def extract_stock_records(stock_boot: bytes, platform_id: int) -> tuple[list[dict], int]:
+def extract_stock_records(
+    stock_boot: bytes, platform_id: int | None = None
+) -> tuple[list[dict], int]:
     header = parse_boot_header(stock_boot)
     page_size = int(header["page_size"])
     qcdt_start = int(header["qcdt_offset"])
@@ -67,13 +69,19 @@ def extract_stock_records(stock_boot: bytes, platform_id: int) -> tuple[list[dic
     if parsed.get("version") != 3:
         raise ValueError("原厂 boot image 的 QCDT 不是 v3")
 
-    records = [
-        record
-        for record in parsed["entries"]
-        if int(record["platform_id"]) == platform_id
-    ]
-    if not records:
-        raise ValueError(f"原厂 QCDT 没有 platform_id={platform_id} 的记录")
+    if platform_id is not None and platform_id > 0:
+        records = [
+            record
+            for record in parsed["entries"]
+            if int(record["platform_id"]) == platform_id
+        ]
+        if not records:
+            raise ValueError(f"原厂 QCDT 没有 platform_id={platform_id} 的记录")
+    else:
+        records = list(parsed["entries"])
+        if not records:
+            raise ValueError("原厂 QCDT 没有匹配记录")
+
     keys = {
         tuple(
             int(record[name])
@@ -113,7 +121,17 @@ def main() -> None:
         type=Path,
         default=project_root / "out/mainline/debian-cache/qcdt-zu02-dw01.img",
     )
-    parser.add_argument("--platform-id", type=int, default=245)
+    parser.add_argument(
+        "--platform-id",
+        type=int,
+        default=245,
+        help="目标 platform_id；传 0 或配合 --all-platforms 提取全部条目",
+    )
+    parser.add_argument(
+        "--all-platforms",
+        action="store_true",
+        help="保留全部原厂硬件条目（包含 245, 258, 259, 265, 275 等全系芯片）",
+    )
     args = parser.parse_args()
 
     stock_path = args.stock_boot.resolve()
@@ -121,7 +139,8 @@ def main() -> None:
     output_path = args.out.resolve()
     stock_boot = stock_path.read_bytes()
     dtb = dtb_path.read_bytes()
-    records, page_size = extract_stock_records(stock_boot, args.platform_id)
+    effective_pid = None if args.all_platforms or args.platform_id == 0 else args.platform_id
+    records, page_size = extract_stock_records(stock_boot, effective_pid)
     output = build_qcdt_v3(records, dtb, page_size)
 
     blobs = find_fdt_blobs(output)

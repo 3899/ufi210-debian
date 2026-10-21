@@ -41,14 +41,13 @@ qcom-msm8909-zu02-dw01.dtb
 仅把主线 DTB 追加到 kernel 末尾时，原厂 fastboot 拒绝并返回 `dtb not found`。因此正式 boot
 必须携带原厂 aboot 能解析的 QCDT 表。
 
-`scripts/build_stock_qcdt.py` 从设备自己的原厂 boot 中选择全部 MSM8909 `platform_id=245` 记录，
-保留各记录的 variant、subtype、SoC revision 和 PMIC 匹配字段，但让全部记录指向唯一的主线
-DW01 DTB。正式 QCDT 必须满足：
+`scripts/build_stock_qcdt.py` 支持指定特定 `platform_id`（如 245 生成 30 条），也支持 `--all-platforms` 保留原厂全部 137 条记录（涵盖 8909/8209/8609/9209/8905 等全部板级变种）。
+全兼容 Universal boot 镜像使用 137 条记录全部指向主线 DW01 DTB，满足：
 
 ```text
 QCDT version=3
-platform_id=245
-entries=30
+platforms=245, 258, 259, 265, 275
+entries=137
 unique DTB=1
 model=DW01 (ZU02_main_v1.1)
 compatible=zu02,dw01
