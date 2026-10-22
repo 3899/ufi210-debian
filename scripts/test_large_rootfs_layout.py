@@ -16,7 +16,7 @@ RESTORE_SCRIPT = Path(__file__).with_name("restore_android_fastboot.ps1")
 COLD_BOOT_TEST = Path(__file__).with_name("test_debian_cold_boot.ps1")
 USB_ADB_EXPERIMENT = (
     Path(__file__).parents[1]
-    / "patches/rootfs/usr/sbin/zu02-usb-adb-experiment"
+    / "patches/rootfs/usr/sbin/ufi210-usb-adb-experiment"
 )
 USB_ADB_TEST = Path(__file__).with_name("test_debian_usb_adb_experimental.ps1")
 SCRIPTS = Path(__file__).parent
@@ -86,8 +86,8 @@ class LargeRootfsLayoutTests(unittest.TestCase):
     def test_initramfs_retries_the_complete_usb_gadget_setup(self) -> None:
         init = INITRAMFS.read_text(encoding="utf-8")
         self.assertIn(
-            "if /sbin/zu02-usb-gadget setup && "
-            "/sbin/zu02-usb-gadget activate; then",
+            "if /sbin/ufi210-usb-gadget setup && "
+            "/sbin/ufi210-usb-gadget activate; then",
             init,
         )
         self.assertIn('max_attempts="${1:-1}"', init)

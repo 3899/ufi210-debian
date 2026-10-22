@@ -8,10 +8,10 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DISPATCHER = PROJECT_ROOT / "patches/rootfs/usr/sbin/zu02-wwan-ip"
+DISPATCHER = PROJECT_ROOT / "patches/rootfs/usr/sbin/ufi210-wwan-ip"
 
 
-class Zu02WwanIpTests(unittest.TestCase):
+class Ufi210WwanIpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         if os.name == "nt":

@@ -235,7 +235,7 @@ try {
 
         $serviceProbe = Invoke-Adb @(
             "-s", $TcpSerial, "shell",
-            "systemctl is-active zu02-usb-gadget adbd zu02-usb-watchdog.timer zu02-usb-network ssh; " +
+            "systemctl is-active ufi210-usb-gadget adbd ufi210-usb-watchdog.timer ufi210-usb-network ssh; " +
             "if ss -lnt | grep -q ':5555 '; then echo TCP_ADB_PRESENT; fi"
         )
         $serviceLines = @($serviceProbe.Text -split "`r?`n" | Where-Object { $_ -ne "" })

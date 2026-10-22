@@ -86,7 +86,7 @@ if ($adbDevices.Text -notmatch "(?m)^$([regex]::Escape($AdbSerial))\s+device\b")
 
 $serviceState = Invoke-Adb @(
     "-s", $AdbSerial, "shell",
-    "systemctl is-active zu02-wcnss NetworkManager adbd ssh dnsmasq"
+    "systemctl is-active ufi210-wcnss NetworkManager adbd ssh dnsmasq"
 )
 if ($serviceState.Text -notmatch '(?s)^active\r?\nactive\r?\nactive\r?\nactive\r?\nactive\r?$') {
     throw "AP 测试前服务状态不正确：`r`n$($serviceState.Text)"

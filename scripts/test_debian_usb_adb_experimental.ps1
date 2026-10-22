@@ -15,7 +15,7 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $Adb = Join-Path $ProjectRoot 'adb.exe'
 $TcpSerial = '192.168.68.1:5555'
 $UsbVidPid = 'USB\VID_18D1&PID_D002'
-$RemoteScript = '/usr/sbin/zu02-usb-adb-experiment'
+$RemoteScript = '/usr/sbin/ufi210-usb-adb-experiment'
 
 function Invoke-Adb {
     param([string[]]$Arguments, [switch]$AllowFailure)
@@ -80,7 +80,7 @@ if ($identity -notmatch '(?m)^ufi210\r?$' -or $identity -notmatch '(?m)^7\.0\.0-
     throw "目标身份校验失败，拒绝继续：`n$identity"
 }
 
-$unit = "zu02-usb-adb-experiment-$([guid]::NewGuid().ToString('N'))"
+$unit = "ufi210-usb-adb-experiment-$([guid]::NewGuid().ToString('N'))"
 $remote = "systemd-run --unit=$unit --collect --no-block $RemoteScript $Mode $DurationSeconds"
 $experimentStarted = Get-Date
 Write-Host "启动有限时长 USB ADB 实验：$Mode，${DurationSeconds}s"
@@ -111,7 +111,7 @@ try {
         throw 'USB ADB 出现后 TCP ADB 未保持可用。'
     }
     Write-Host 'USB ADB 与 TCP 回退入口均已建立，触发一次 experimental adbd 热重启。'
-    $restart = 'systemd-run --quiet --collect --on-active=1s /usr/bin/systemctl restart zu02-usb-adbd-experiment.service'
+    $restart = 'systemd-run --quiet --collect --on-active=1s /usr/bin/systemctl restart ufi210-usb-adbd-experiment.service'
     Invoke-Adb @('-s', 'ZU02-DW01', 'shell', $restart) | Out-Null
     if (-not (Wait-UsbAdb 15)) {
         throw '热重启后 USB ADB 未在 15 秒内恢复。'
@@ -138,7 +138,7 @@ $restoreTimeout = [Math]::Max(60, $DurationSeconds - $elapsed + 60)
 if (-not (Wait-TcpAdb $restoreTimeout)) {
     throw "实验结束后固定 TCP ADB 未在 ${restoreTimeout}s 内恢复。实验错误：$experimentError"
 }
-$final = Invoke-Adb @('-s', $TcpSerial, 'shell', 'find /sys/kernel/config/usb_gadget/g1/configs/c.1 -maxdepth 1 -type l -exec basename {} + | sort; mountpoint -q /dev/usb-ffs/adb; echo ffs_mount=$?; systemctl is-active adbd zu02-usb-watchdog.timer')
+$final = Invoke-Adb @('-s', $TcpSerial, 'shell', 'find /sys/kernel/config/usb_gadget/g1/configs/c.1 -maxdepth 1 -type l -exec basename {} + | sort; mountpoint -q /dev/usb-ffs/adb; echo ffs_mount=$?; systemctl is-active adbd ufi210-usb-watchdog.timer')
 if ($final -notmatch '(?ms)^acm\.usb0\r?\nrndis\.usb0\r?\nffs_mount=1\r?\nactive\r?\nactive\s*$') {
     throw "实验结束后的默认 gadget 未完整恢复：`n$final"
 }

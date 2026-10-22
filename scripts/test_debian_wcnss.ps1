@@ -85,7 +85,7 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 Wait-TcpAdb
 $services = Invoke-Adb @(
     "-s", $AdbSerial, "shell",
-    "systemctl is-active zu02-wcnss NetworkManager; printf 'FAILED_COUNT='; systemctl --failed --no-legend --plain | wc -l"
+    "systemctl is-active ufi210-wcnss NetworkManager; printf 'FAILED_COUNT='; systemctl --failed --no-legend --plain | wc -l"
 )
 Write-Utf8File (Join-Path $OutputDir "services.txt") ($services.Text + "`r`n")
 if ($services.Text -notmatch '(?s)^active\r?\nactive\r?\nFAILED_COUNT=0\r?$') {
@@ -162,7 +162,7 @@ $kernelLog = Invoke-Adb @(
     "-s", $AdbSerial, "shell",
     "dmesg | grep -Ei 'remoteproc|wcnss|wcn36|firmware' | tail -n 300"
 )
-$journal = Invoke-Adb @("-s", $AdbSerial, "shell", "journalctl -u zu02-wcnss --no-pager")
+$journal = Invoke-Adb @("-s", $AdbSerial, "shell", "journalctl -u ufi210-wcnss --no-pager")
 Write-Utf8File (Join-Path $OutputDir "kernel-wcnss.txt") ($kernelLog.Text + "`r`n")
 Write-Utf8File (Join-Path $OutputDir "journal-wcnss.txt") ($journal.Text + "`r`n")
 

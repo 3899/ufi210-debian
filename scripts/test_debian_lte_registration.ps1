@@ -109,7 +109,7 @@ if ($deviceState.Text.Trim() -ne "device") { throw "TCP ADB 不可用：$AdbSeri
 
 $policy = Invoke-AdbShell @'
 set -eu
-systemctl is-active rmtfs zu02-mpss zu02-modem-prepare ModemManager
+systemctl is-active rmtfs ufi210-mpss ufi210-modem-prepare ModemManager
 systemctl show rmtfs -p ExecStart --no-pager
 findmnt -nro SOURCE,FSTYPE,OPTIONS /firmware
 findmnt -nro SOURCE,FSTYPE,OPTIONS /persist

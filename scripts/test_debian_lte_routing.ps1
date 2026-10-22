@@ -117,11 +117,11 @@ if ($deviceState.Text.Trim() -ne "device") { throw "TCP ADB 不可用：$AdbSeri
 
 $preflight = Invoke-AdbShell @'
 set -eu
-systemctl is-active rmtfs zu02-mpss zu02-modem-prepare ModemManager NetworkManager zu02-firewall
+systemctl is-active rmtfs ufi210-mpss ufi210-modem-prepare ModemManager NetworkManager ufi210-firewall
 command -v nft
 command -v ip
-nft list table inet zu02_firewall | grep -q 'wwan0'
-nft list table inet zu02_firewall | grep -q 'drop'
+nft list table inet ufi210_firewall | grep -q 'wwan0'
+nft list table inet ufi210_firewall | grep -q 'drop'
 mmcli -m any --output-keyvalue | grep '^modem.generic.state *: registered$'
 mmcli -m any --output-keyvalue | grep '^modem.3gpp.packet-service-state *: attached$'
 test "$(systemctl --failed --no-legend --plain | wc -l)" -eq 0
@@ -211,7 +211,7 @@ stage=nftables
 nft list ruleset | grep -q "nm-shared-`$host"
 nft list ruleset | grep -q 'masquerade'
 nft list ruleset | grep -q 'forward'
-nft list chain inet zu02_firewall input | grep -q usb0
+nft list chain inet ufi210_firewall input | grep -q usb0
 if ip netns exec "`$ns" busybox nc -w 2 192.168.77.1 22 </dev/null; then
     echo 'SSH was reachable from a non-USB downstream interface' >&2
     exit 1

@@ -119,7 +119,7 @@ Write-Utf8File (Join-Path $OutputDir "windows-wlan-before.txt") ($windowsWlanBef
 $deadline = (Get-Date).AddSeconds($ReadyTimeoutSeconds)
 $ready = $false
 do {
-    $probe = Invoke-AdbShell 'systemctl is-active qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync >/dev/null 2>&1 && test -e /dev/wwan0qmi0 && test -e /sys/class/net/wwan0 && mmcli -L | grep -q /Modem/' -AllowFailure
+    $probe = Invoke-AdbShell 'systemctl is-active qrtr-ns rmtfs ufi210-mpss ufi210-modem-prepare ModemManager ufi210-modem-register ufi210-modem-time-sync >/dev/null 2>&1 && test -e /dev/wwan0qmi0 && test -e /sys/class/net/wwan0 && mmcli -L | grep -q /Modem/' -AllowFailure
     $ready = $probe.ExitCode -eq 0
     if (-not $ready) { Start-Sleep -Seconds 2 }
 } while (-not $ready -and (Get-Date) -lt $deadline)
@@ -130,7 +130,7 @@ echo '=== BOOT ==='
 cat /proc/sys/kernel/random/boot_id
 uname -a
 echo '=== SERVICES ==='
-systemctl is-active qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync
+systemctl is-active qrtr-ns rmtfs ufi210-mpss ufi210-modem-prepare ModemManager ufi210-modem-register ufi210-modem-time-sync
 systemctl show rmtfs -p ExecStart --no-pager
 systemctl --failed --no-pager
 echo '=== FIRMWARE MOUNT ==='
@@ -164,7 +164,7 @@ systemctl --failed --no-legend --plain | wc -l
 Write-Utf8File (Join-Path $OutputDir "mpss-probe.txt") ($serviceProbe.Text + "`r`n")
 
 if (-not $ready) {
-    $journal = Invoke-AdbShell 'journalctl -b -u qrtr-ns -u rmtfs -u zu02-mpss -u zu02-modem-prepare -u ModemManager --no-pager; dmesg | tail -n 500' -AllowFailure
+    $journal = Invoke-AdbShell 'journalctl -b -u qrtr-ns -u rmtfs -u ufi210-mpss -u ufi210-modem-prepare -u ModemManager --no-pager; dmesg | tail -n 500' -AllowFailure
     Write-Utf8File (Join-Path $OutputDir "failure-journal.txt") ($journal.Text + "`r`n")
     throw "MPSS/ModemManager 未在超时内就绪；查看 $OutputDir"
 }
@@ -217,7 +217,7 @@ foreach ($name in @("modem", "modemst1", "modemst2", "fsg", "persist")) {
     }
 }
 
-$journal = Invoke-AdbShell 'journalctl -b -u qrtr-ns -u rmtfs -u zu02-mpss -u zu02-modem-prepare -u ModemManager --no-pager; dmesg | grep -Ei "remoteproc|q6v5|mpss|modem|bam|wwan|qrtr|rmtfs" | tail -n 500' -AllowFailure
+$journal = Invoke-AdbShell 'journalctl -b -u qrtr-ns -u rmtfs -u ufi210-mpss -u ufi210-modem-prepare -u ModemManager --no-pager; dmesg | grep -Ei "remoteproc|q6v5|mpss|modem|bam|wwan|qrtr|rmtfs" | tail -n 500' -AllowFailure
 Write-Utf8File (Join-Path $OutputDir "mpss-journal.txt") ((Protect-Identifier $journal.Text) + "`r`n")
 $windowsWlanAfter = (Invoke-Native "netsh.exe" @("wlan", "show", "interfaces") -AllowFailure).Text
 Write-Utf8File (Join-Path $OutputDir "windows-wlan-after.txt") ($windowsWlanAfter + "`r`n")

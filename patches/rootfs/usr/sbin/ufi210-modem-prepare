@@ -38,7 +38,7 @@ while [ "$attempt" -lt 20 ]; do
     if [ -e /dev/wwan0qmi0 ] && [ -e /sys/class/net/wwan0 ]; then
         if [ -e /dev/wwan0qmi1 ] && [ -e /sys/class/net/wwan1 ]; then
             open_wwan_link
-            echo 'zu02-modem-prepare: Dual QMI and BAM-DMUX ports (wwan0, wwan1) are ready'
+            echo 'ufi210-modem-prepare: Dual QMI and BAM-DMUX ports (wwan0, wwan1) are ready'
             exit 0
         fi
     fi
@@ -48,9 +48,9 @@ done
 
 if [ -e /dev/wwan0qmi0 ] && [ -e /sys/class/net/wwan0 ]; then
     open_wwan_link
-    echo 'zu02-modem-prepare: Primary QMI and BAM-DMUX port (wwan0) is ready'
+    echo 'ufi210-modem-prepare: Primary QMI and BAM-DMUX port (wwan0) is ready'
     exit 0
 fi
 
-echo 'zu02-modem-prepare: QMI control or BAM-DMUX net port did not appear' >&2
+echo 'ufi210-modem-prepare: QMI control or BAM-DMUX net port did not appear' >&2
 exit 1

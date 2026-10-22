@@ -104,14 +104,14 @@ find /sys/kernel/config/usb_gadget/g1/configs/c.1 -maxdepth 1 -type l -printf '%
 echo 'usb0:'
 ip -4 -br address show usb0 2>/dev/null || true
 echo 'services:'
-systemctl show adbd.service zu02-usb-gadget.service zu02-usb-network.service ssh.service \
+systemctl show adbd.service ufi210-usb-gadget.service ufi210-usb-network.service ssh.service \
     -p Id -p ActiveState -p SubState -p MainPID -p NRestarts --no-pager
 '@
 Save-Probe "previous-usb-units.txt" @'
 journalctl -b -1 -o short-monotonic --no-pager \
     -u adbd.service \
-    -u zu02-usb-gadget.service \
-    -u zu02-usb-network.service \
+    -u ufi210-usb-gadget.service \
+    -u ufi210-usb-network.service \
     -u ssh.service
 '@
 Save-Probe "previous-kernel.txt" 'journalctl -k -b -1 -o short-monotonic --no-pager'
@@ -119,8 +119,8 @@ Save-Probe "previous-full.txt" 'journalctl -b -1 -o short-monotonic --no-pager'
 Save-Probe "current-usb-units.txt" @'
 journalctl -b 0 -o short-monotonic --no-pager \
     -u adbd.service \
-    -u zu02-usb-gadget.service \
-    -u zu02-usb-network.service \
+    -u ufi210-usb-gadget.service \
+    -u ufi210-usb-network.service \
     -u ssh.service
 '@
 

@@ -3,12 +3,12 @@ set -eu
 
 G=/sys/kernel/config/usb_gadget/g1
 C=$G/configs/c.1
-STATE=/run/zu02-usb-watchdog.unhealthy
+STATE=/run/ufi210-usb-watchdog.unhealthy
 MIN_UNHEALTHY_SECONDS=5
 UDC="$(ls /sys/class/udc 2>/dev/null | head -n 1 || true)"
 
 log() {
-    logger -t zu02-usb-watchdog -- "$*"
+    logger -t ufi210-usb-watchdog -- "$*"
     echo "$*" >&2
 }
 
@@ -33,7 +33,7 @@ usb_healthy() {
     [ -L "$C/acm.usb0" ] || return 1
     [ "$(find "$C" -maxdepth 1 -type l | wc -l)" -eq 2 ] || return 1
     [ -e /sys/class/net/usb0 ] || return 1
-    systemctl is-active --quiet zu02-usb-gadget.service
+    systemctl is-active --quiet ufi210-usb-gadget.service
 }
 
 if usb_healthy; then
@@ -62,8 +62,8 @@ fi
 
 rm -f "$STATE"
 log "USB gadget structure remained unhealthy; rebuilding fixed RNDIS and ACM"
-/usr/sbin/zu02-usb-gadget rebuild
-/usr/sbin/zu02-usb-network
+/usr/sbin/ufi210-usb-gadget rebuild
+/usr/sbin/ufi210-usb-network
 systemctl try-restart dnsmasq.service || true
 
 if usb_healthy; then

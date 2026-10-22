@@ -153,5 +153,5 @@ case "${1:-}" in
     activate) activate ;;
     reset) reset ;;
     rebuild) rebuild ;;
-    *) echo 'usage: zu02-usb-gadget setup|activate|reset|rebuild' >&2; exit 2 ;;
+    *) echo 'usage: ufi210-usb-gadget setup|activate|reset|rebuild' >&2; exit 2 ;;
 esac

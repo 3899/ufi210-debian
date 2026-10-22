@@ -294,7 +294,7 @@ test "$(findmnt -nro SOURCE /)" = /dev/mapper/ufi210-root
 grep -q 'root=/dev/mapper/ufi210-root' /proc/cmdline
 test "$(systemctl is-system-running)" = running
 test "$(systemctl --failed --no-legend --plain | wc -l)" = 0
-systemctl is-active NetworkManager ssh adbd zu02-wcnss zu02-mpss ModemManager >/dev/null
+systemctl is-active NetworkManager ssh adbd ufi210-wcnss ufi210-mpss ModemManager >/dev/null
 echo UFI210_DEBIAN_OK
 '@
     $probe = Invoke-Native $Adb @("-s", $AdbSerial, "shell", $probeCommand)

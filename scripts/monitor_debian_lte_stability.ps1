@@ -36,7 +36,7 @@ $CleanupUnit = "zu02-lte-stability-cleanup"
 $CleanupScript = "/run/zu02-lte-stability-cleanup.sh"
 $ModemStateFile = "/run/zu02-lte-stability-mmcli.txt"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
-$Services = "zu02-firewall zu02-usb-gadget adbd zu02-usb-network ssh dnsmasq NetworkManager zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync serial-getty@ttyGS0.service"
+$Services = "ufi210-firewall ufi210-usb-gadget adbd ufi210-usb-network ssh dnsmasq NetworkManager ufi210-wcnss qrtr-ns rmtfs ufi210-mpss ufi210-modem-prepare ModemManager ufi210-modem-register ufi210-modem-time-sync serial-getty@ttyGS0.service"
 $ExpectedActiveServices = 16
 
 if (-not $AllowCellularDataUsage) {
@@ -183,7 +183,7 @@ $ProbeLog = Join-Path $OutputDir "probes.txt"
 Wait-TcpAdb
 $preflight = Invoke-AdbShell @'
 set -eu
-systemctl is-active rmtfs zu02-mpss zu02-modem-prepare ModemManager NetworkManager zu02-firewall zu02-wcnss
+systemctl is-active rmtfs ufi210-mpss ufi210-modem-prepare ModemManager NetworkManager ufi210-firewall ufi210-wcnss
 systemctl show rmtfs -p ExecStart --no-pager
 findmnt -nro SOURCE,FSTYPE,OPTIONS /firmware
 findmnt -nro SOURCE,FSTYPE,OPTIONS /persist
@@ -191,8 +191,8 @@ grep '^PARTLABEL=persist /persist ext4 ro,noload,' /etc/fstab
 command -v nft
 command -v systemd-run
 command -v timeout
-nft list table inet zu02_firewall | grep -q 'wwan0'
-nft list table inet zu02_firewall | grep -q 'drop'
+nft list table inet ufi210_firewall | grep -q 'wwan0'
+nft list table inet ufi210_firewall | grep -q 'drop'
 mmcli -m any --output-keyvalue | grep '^modem.generic.state *: registered$'
 mmcli -m any --output-keyvalue | grep '^modem.3gpp.packet-service-state *: attached$'
 test "$(systemctl --failed --no-legend --plain | wc -l)" -eq 0
@@ -556,7 +556,7 @@ try {
     }
 } catch {
     $testFailure = $_.Exception.Message
-    $diagnostic = Invoke-AdbShell "systemctl --failed --no-pager; systemctl status ModemManager NetworkManager zu02-mpss zu02-wcnss --no-pager; journalctl -b -u ModemManager -u NetworkManager -u zu02-mpss -u zu02-wcnss --no-pager | tail -n 500" -AllowFailure
+    $diagnostic = Invoke-AdbShell "systemctl --failed --no-pager; systemctl status ModemManager NetworkManager ufi210-mpss ufi210-wcnss --no-pager; journalctl -b -u ModemManager -u NetworkManager -u ufi210-mpss -u ufi210-wcnss --no-pager | tail -n 500" -AllowFailure
     Write-Utf8File (Join-Path $OutputDir "failure-diagnostic.txt") ($diagnostic.Text + "`r`n")
 } finally {
     if ($pingJob) {

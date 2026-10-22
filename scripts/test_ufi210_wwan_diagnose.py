@@ -10,7 +10,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DIAGNOSE_SCRIPT = PROJECT_ROOT / "patches/rootfs/usr/sbin/ufi210-wwan-diagnose"
-WWAN_IP_SCRIPT = PROJECT_ROOT / "patches/rootfs/usr/sbin/zu02-wwan-ip"
+WWAN_IP_SCRIPT = PROJECT_ROOT / "patches/rootfs/usr/sbin/ufi210-wwan-ip"
 
 
 class TestUfi210WwanDiagnose(unittest.TestCase):
@@ -29,7 +29,7 @@ class TestUfi210WwanDiagnose(unittest.TestCase):
             self.assertIn(pattern, content, f"Must redact {pattern}")
 
     def test_wwan_ip_supports_dual_stack(self):
-        self.assertTrue(WWAN_IP_SCRIPT.is_file(), "zu02-wwan-ip must exist")
+        self.assertTrue(WWAN_IP_SCRIPT.is_file(), "ufi210-wwan-ip must exist")
         content = WWAN_IP_SCRIPT.read_text(encoding="utf-8")
         self.assertIn("has_ipv4=1", content, "Must support IPv4")
         self.assertIn("has_ipv6=1", content, "Must support IPv6")

@@ -4,12 +4,12 @@ set -eu
 G=/sys/kernel/config/usb_gadget/g1
 C=$G/configs/c.1
 ADB=/usr/lib/android-sdk/platform-tools/adbd
-LOG=/var/log/zu02-usb-adb-experiment.log
+LOG=/var/log/ufi210-usb-adb-experiment.log
 MODE=${1:-}
 DURATION=${2:-120}
 UDC=
-LOCK=/run/zu02-usb-adb-experiment.lock
-EXPERIMENT_ADBD=zu02-usb-adbd-experiment.service
+LOCK=/run/ufi210-usb-adb-experiment.lock
+EXPERIMENT_ADBD=ufi210-usb-adbd-experiment.service
 EXPERIMENT_PID=0xD002
 DEFAULT_PID=0xD001
 
@@ -55,15 +55,15 @@ restore() {
     echo 'RNDIS + ACM' > "$C/strings/0x409/configuration"
     echo "$UDC" > "$G/UDC"
     systemctl start adbd.service
-    systemctl restart zu02-usb-network.service dnsmasq.service
-    systemctl start zu02-usb-watchdog.timer
+    systemctl restart ufi210-usb-network.service dnsmasq.service
+    systemctl start ufi210-usb-watchdog.timer
     rmdir "$LOCK" 2>/dev/null
     log 'fixed gadget restored'
 }
 trap restore EXIT INT TERM HUP
 
 log "starting opt-in mode=$MODE duration=${DURATION}s"
-systemctl stop zu02-usb-watchdog.timer adbd.service
+systemctl stop ufi210-usb-watchdog.timer adbd.service
 printf '\n' > "$G/UDC"
 rm -f "$C/ffs.adb" "$C/rndis.usb0" "$C/acm.usb0"
 umount /dev/usb-ffs/adb 2>/dev/null || true

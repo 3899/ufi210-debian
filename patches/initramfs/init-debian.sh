@@ -4,8 +4,8 @@ set -eu
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 
 log() {
-    echo "[zu02-initramfs] $*" > /dev/kmsg
-    echo "[zu02-initramfs] $*"
+    echo "[ufi210-initramfs] $*" > /dev/kmsg
+    echo "[ufi210-initramfs] $*"
 }
 
 start_recovery_network() {
@@ -13,7 +13,7 @@ start_recovery_network() {
     gadget_started=no
     attempt=1
     while [ "$attempt" -le "$max_attempts" ]; do
-        if /sbin/zu02-usb-gadget setup && /sbin/zu02-usb-gadget activate; then
+        if /sbin/ufi210-usb-gadget setup && /sbin/ufi210-usb-gadget activate; then
             gadget_started=yes
             break
         fi
@@ -149,22 +149,22 @@ find_exact_partition() {
     done
     [ "$found_count" -eq 0 ] && return 1
     if [ "$found_count" -ne 1 ]; then
-        echo "[zu02-initramfs] expected one $partlabel partition, found $found_count" >/dev/kmsg
+        echo "[ufi210-initramfs] expected one $partlabel partition, found $found_count" >/dev/kmsg
         return 2
     fi
     actual_sectors="$(cat "/sys/class/block/${found##*/}/size")"
     if [ "$partlabel" = "userdata" ]; then
         if [ "$actual_sectors" -lt 3250584 ]; then
-            echo "[zu02-initramfs] $partlabel has $actual_sectors sectors, expected >= 3250584" >/dev/kmsg
+            echo "[ufi210-initramfs] $partlabel has $actual_sectors sectors, expected >= 3250584" >/dev/kmsg
             return 2
         fi
     elif [ -n "$expected_sectors" ] && [ "$actual_sectors" != "$expected_sectors" ]; then
-        echo "[zu02-initramfs] $partlabel has $actual_sectors sectors, expected $expected_sectors" >/dev/kmsg
+        echo "[ufi210-initramfs] $partlabel has $actual_sectors sectors, expected $expected_sectors" >/dev/kmsg
         return 2
     fi
     actual_start="$(cat "/sys/class/block/${found##*/}/start")"
     if [ -n "$expected_start" ] && [ "$actual_start" != "$expected_start" ]; then
-        echo "[zu02-initramfs] $partlabel starts at $actual_start, expected $expected_start" >/dev/kmsg
+        echo "[ufi210-initramfs] $partlabel starts at $actual_start, expected $expected_start" >/dev/kmsg
         return 2
     fi
     printf '%s\n' "$found"

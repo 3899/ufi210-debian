@@ -12,7 +12,7 @@ mount_options="$(findmnt -nro OPTIONS /firmware)"
 case ",$mount_options," in
     *,ro,*) ;;
     *)
-        echo 'zu02-mpss-start: modem firmware partition is not read-only' >&2
+        echo 'ufi210-mpss-start: modem firmware partition is not read-only' >&2
         exit 1
         ;;
 esac
@@ -21,15 +21,15 @@ for firmware_name in $firmware_files; do
     firmware_path="$firmware_dir/$firmware_name"
     firmware_link="/usr/lib/firmware/$firmware_name"
     [ -s "$firmware_path" ] || {
-        echo "zu02-mpss-start: missing $firmware_path" >&2
+        echo "ufi210-mpss-start: missing $firmware_path" >&2
         exit 1
     }
     [ -L "$firmware_link" ] || {
-        echo "zu02-mpss-start: $firmware_link is not a symbolic link" >&2
+        echo "ufi210-mpss-start: $firmware_link is not a symbolic link" >&2
         exit 1
     }
     [ "$(readlink "$firmware_link")" = "$firmware_path" ] || {
-        echo "zu02-mpss-start: unexpected target for $firmware_link" >&2
+        echo "ufi210-mpss-start: unexpected target for $firmware_link" >&2
         exit 1
     }
 done
@@ -52,7 +52,7 @@ while [ "$attempt" -lt 60 ]; do
 
         state="$(cat "$remoteproc/state")"
         if [ "$state" = running ]; then
-            echo "zu02-mpss-start: $name is running"
+            echo "ufi210-mpss-start: $name is running"
             exit 0
         fi
         if [ "$state" = offline ]; then
@@ -62,5 +62,5 @@ while [ "$attempt" -lt 60 ]; do
     sleep 1
 done
 
-echo 'zu02-mpss-start: MPSS remote processor did not reach running state' >&2
+echo 'ufi210-mpss-start: MPSS remote processor did not reach running state' >&2
 exit 1

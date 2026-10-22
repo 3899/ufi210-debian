@@ -121,12 +121,12 @@ USB ACM 也提供 systemd serial getty。系统含完整 `nmcli` 和简体中文
 
 ADB 监听固定端口 5555，不提供 Android 式客户端授权。nftables 把
 SSH 22 和 ADB 5555 限制到 USB 管理接口 `usb0` 与无线局域网 `wlan0`，严格禁止从蜂窝 `wwan0` 接口访问。不要停用
-`zu02-firewall.service`。
+`ufi210-firewall.service`。
 
 RNDIS 设备端和主机端 MAC 在每次启动时由设备自身序列种子单向派生，属于本地管理单播地址；
 同一台设备跨重启保持不变，不会把原始设备标识写入镜像或发布包。
 
-镜像预置默认关闭的 `ZU02 Wi-Fi AP` 连接，地址为 `192.168.69.1/24`。通过 USB 登录后可用
+镜像预置默认关闭的 `UFI210 Wi-Fi AP` 连接，地址为 `192.168.69.1/24`。通过 USB 登录后可用
 `nmtui` 启用并修改 SSID/密码。WCN36xx 只有一个 `wlan0` 且不支持并发接口，连接外部 Wi-Fi
 与 AP 模式同时只能启用一个。USB 与 Wi-Fi 使用隔离网段，不建立 bridge；切换无线模式不会
 停用 USB 管理网络。

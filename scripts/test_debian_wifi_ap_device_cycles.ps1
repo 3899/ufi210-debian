@@ -75,7 +75,7 @@ if ($adbDevices.Text -notmatch "(?m)^$([regex]::Escape($AdbSerial))\s+device\b")
 }
 
 $profilePreflight = @'
-systemctl is-active zu02-wcnss NetworkManager adbd ssh dnsmasq
+systemctl is-active ufi210-wcnss NetworkManager adbd ssh dnsmasq
 printf 'FAILED_COUNT='; systemctl --failed --no-legend --plain | wc -l
 printf 'REMOTEPROC_STATE='; cat /sys/class/remoteproc/remoteproc0/state
 test "$(nmcli -g connection.autoconnect connection show '__CONNECTION__')" = no

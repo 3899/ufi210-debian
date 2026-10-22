@@ -19,19 +19,19 @@ QCDT_BUILD_SCRIPT="$PROJECT_ROOT/scripts/build_stock_qcdt.py"
 INITRAMFS_INIT="$PROJECT_ROOT/patches/initramfs/init-debian.sh"
 INITRAMFS="$OUT_DIR/initramfs-zu02-debian"
 QCDT="$OUT_DIR/qcdt-zu02-dw01.img"
-USB_GADGET_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-gadget"
-USB_WATCHDOG_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-watchdog"
-USB_ADB_EXPERIMENT_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-adb-experiment"
-WCNSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wcnss-start"
-MPSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-mpss-start"
-MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-prepare"
-MODEM_REGISTER_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-register"
+USB_GADGET_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-usb-gadget"
+USB_WATCHDOG_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-usb-watchdog"
+USB_ADB_EXPERIMENT_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-usb-adb-experiment"
+WCNSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-wcnss-start"
+MPSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-mpss-start"
+MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-prepare"
+MODEM_REGISTER_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-register"
 MODEM_TIME_SYNC_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-time-sync"
-WWAN_IP_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wwan-ip"
+WWAN_IP_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-wwan-ip"
 WWAN_DIAGNOSE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-wwan-diagnose"
 NMTUI_WRAPPER="$PROJECT_ROOT/patches/rootfs/usr/local/bin/nmtui"
 REBOOT_COMPAT_SOURCE="$PROJECT_ROOT/src/reboot-compat.c"
-WIFI_AP_PROFILE="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection"
+WIFI_AP_PROFILE="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/system-connections/ufi210-wifi-ap.nmconnection"
 USB_MANAGEMENT_CONF="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/conf.d/10-ufi210-usb-management.conf"
 WIFI_MAC_CONF="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/conf.d/20-ufi210-wifi-mac.conf"
 WCNSS_FIRMWARE_DIR="$PROJECT_ROOT/resource/backup/0.modem/image"
@@ -626,7 +626,7 @@ mkdir -p "$tmp_dir/initramfs-root"
 gzip -dc "$INITRAMFS" | (cd "$tmp_dir/initramfs-root" && cpio -idmu --no-absolute-filenames 2>/dev/null)
 cmp -s "$INITRAMFS_INIT" "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 的 init 脚本不匹配"
-cmp -s "$USB_GADGET_SCRIPT" "$tmp_dir/initramfs-root/sbin/zu02-usb-gadget" \
+cmp -s "$USB_GADGET_SCRIPT" "$tmp_dir/initramfs-root/sbin/ufi210-usb-gadget" \
     || die "纯 Debian initramfs 的 USB gadget 脚本不匹配"
 cmp -s "$tmp_dir/initramfs-root/lib/firmware/regulatory.db" \
     <(tar -xJOf "$ROOTFS_TARBALL" ./usr/lib/firmware/regulatory.db-upstream) \
@@ -682,7 +682,7 @@ grep -Fq 'recovery shell is available on USB ACM /dev/ttyGS0' "$tmp_dir/initramf
     || die "纯 Debian initramfs 未提供 USB ACM 救援说明"
 grep -Fq '/system/bin/reboot bootloader' "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未提供进入 fastboot 的救援命令"
-grep -Fq 'if /sbin/zu02-usb-gadget setup && /sbin/zu02-usb-gadget activate; then' \
+grep -Fq 'if /sbin/ufi210-usb-gadget setup && /sbin/ufi210-usb-gadget activate; then' \
     "$tmp_dir/initramfs-root/init" \
     || die "纯 Debian initramfs 未重试完整 USB gadget 建立流程"
 grep -Fq 'start_recovery_network 1 || log' "$tmp_dir/initramfs-root/init" \
@@ -738,9 +738,9 @@ tar -C "$tmp_dir/rootfs-meta" -xJf "$ROOTFS_TARBALL" \
     || die "rootfs 的 /etc/resolv.conf 不是符号链接"
 [[ "$(readlink "$tmp_dir/rootfs-meta/etc/resolv.conf")" == "/run/NetworkManager/resolv.conf" ]] \
     || die "rootfs 的 /etc/resolv.conf 未交给 NetworkManager 管理"
-[[ ! -e "$tmp_dir/rootfs-meta/etc/NetworkManager/system-connections/zu02-usb-management.nmconnection" ]] \
+[[ ! -e "$tmp_dir/rootfs-meta/etc/NetworkManager/system-connections/ufi210-usb-management.nmconnection" ]] \
     || die "rootfs 不得保留旧的 NetworkManager USB 管理连接"
-[[ "$(stat -c '%a' "$tmp_dir/rootfs-meta/etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection")" == "600" ]] \
+[[ "$(stat -c '%a' "$tmp_dir/rootfs-meta/etc/NetworkManager/system-connections/ufi210-wifi-ap.nmconnection")" == "600" ]] \
     || die "Wi-Fi AP 连接权限不是 0600"
 [[ "$(stat -c '%a' "$tmp_dir/rootfs-meta/usr/local/bin/nmtui")" == "755" ]] \
     || die "nmtui 包装器权限不是 0755"
@@ -764,46 +764,46 @@ fi
 log "核对 rootfs 服务、密码和 ARM adbd"
 for required_path in \
     ./etc/systemd/system/adbd.service \
-    ./etc/systemd/system/zu02-usb-gadget.service \
-    ./etc/systemd/system/zu02-usb-watchdog.service \
-    ./etc/systemd/system/zu02-usb-watchdog.timer \
-    ./etc/systemd/system/zu02-usb-network.service \
-    ./etc/systemd/system/zu02-wcnss.service \
-    ./etc/systemd/system/zu02-mpss.service \
-    ./etc/systemd/system/zu02-modem-prepare.service \
-    ./etc/systemd/system/zu02-modem-register.service \
+    ./etc/systemd/system/ufi210-usb-gadget.service \
+    ./etc/systemd/system/ufi210-usb-watchdog.service \
+    ./etc/systemd/system/ufi210-usb-watchdog.timer \
+    ./etc/systemd/system/ufi210-usb-network.service \
+    ./etc/systemd/system/ufi210-wcnss.service \
+    ./etc/systemd/system/ufi210-mpss.service \
+    ./etc/systemd/system/ufi210-modem-prepare.service \
+    ./etc/systemd/system/ufi210-modem-register.service \
     ./etc/systemd/system/ufi210-modem-time-sync.service \
-    ./etc/systemd/system/zu02-firewall.service \
-    ./etc/systemd/system/rmtfs.service.d/10-zu02-read-only.conf \
-    ./etc/systemd/system/ModemManager.service.d/10-zu02-dpm.conf \
-    ./etc/modprobe.d/zu02-mpss.conf \
+    ./etc/systemd/system/ufi210-firewall.service \
+    ./etc/systemd/system/rmtfs.service.d/10-ufi210-read-only.conf \
+    ./etc/systemd/system/ModemManager.service.d/10-ufi210-dpm.conf \
+    ./etc/modprobe.d/ufi210-mpss.conf \
     ./etc/systemd/system/multi-user.target.wants/adbd.service \
-    ./etc/systemd/system/multi-user.target.wants/zu02-usb-gadget.service \
-    ./etc/systemd/system/timers.target.wants/zu02-usb-watchdog.timer \
+    ./etc/systemd/system/multi-user.target.wants/ufi210-usb-gadget.service \
+    ./etc/systemd/system/timers.target.wants/ufi210-usb-watchdog.timer \
     ./etc/systemd/system/timers.target.wants/fstrim.timer \
-    ./etc/systemd/system/multi-user.target.wants/zu02-usb-network.service \
-    ./etc/systemd/system/multi-user.target.wants/zu02-wcnss.service \
-    ./etc/systemd/system/multi-user.target.wants/zu02-mpss.service \
-    ./etc/systemd/system/multi-user.target.wants/zu02-modem-prepare.service \
-    ./etc/systemd/system/multi-user.target.wants/zu02-modem-register.service \
+    ./etc/systemd/system/multi-user.target.wants/ufi210-usb-network.service \
+    ./etc/systemd/system/multi-user.target.wants/ufi210-wcnss.service \
+    ./etc/systemd/system/multi-user.target.wants/ufi210-mpss.service \
+    ./etc/systemd/system/multi-user.target.wants/ufi210-modem-prepare.service \
+    ./etc/systemd/system/multi-user.target.wants/ufi210-modem-register.service \
     ./etc/systemd/system/multi-user.target.wants/ufi210-modem-time-sync.service \
-    ./etc/systemd/system/sysinit.target.wants/zu02-firewall.service \
+    ./etc/systemd/system/sysinit.target.wants/ufi210-firewall.service \
     ./etc/systemd/system/multi-user.target.wants/qrtr-ns.service \
     ./etc/systemd/system/multi-user.target.wants/rmtfs.service \
     ./etc/systemd/system/multi-user.target.wants/ModemManager.service \
     ./etc/systemd/system/multi-user.target.wants/ssh.service \
-    ./etc/systemd/system/ssh.service.d/10-zu02.conf \
+    ./etc/systemd/system/ssh.service.d/10-ufi210.conf \
     ./etc/systemd/system/multi-user.target.wants/dnsmasq.service \
     ./etc/systemd/system/multi-user.target.wants/NetworkManager.service \
     ./etc/systemd/system/sysinit.target.wants/systemd-timesyncd.service \
     ./etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service \
-    ./etc/systemd/system/serial-getty@ttyGS0.service.d/10-zu02.conf \
-    ./etc/systemd/journald.conf.d/10-zu02.conf \
-    ./etc/NetworkManager/dispatcher.d/90-zu02-wwan-ip \
+    ./etc/systemd/system/serial-getty@ttyGS0.service.d/10-ufi210.conf \
+    ./etc/systemd/journald.conf.d/10-ufi210.conf \
+    ./etc/NetworkManager/dispatcher.d/90-ufi210-wwan-ip \
     ./etc/NetworkManager/conf.d/10-ufi210-usb-management.conf \
     ./etc/NetworkManager/conf.d/20-ufi210-wifi-mac.conf \
-    ./etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection \
-    ./etc/nftables.d/zu02-firewall.nft \
+    ./etc/NetworkManager/system-connections/ufi210-wifi-ap.nmconnection \
+    ./etc/nftables.d/ufi210-firewall.nft \
     ./etc/resolv.conf \
     ./etc/default/locale \
     ./system/bin/reboot \
@@ -830,17 +830,17 @@ for required_path in \
     ./usr/sbin/wpa_supplicant \
     ./usr/sbin/ModemManager \
     ./usr/sbin/nft \
-    ./usr/sbin/zu02-modem-prepare \
-    ./usr/sbin/zu02-modem-register \
+    ./usr/sbin/ufi210-modem-prepare \
+    ./usr/sbin/ufi210-modem-register \
     ./usr/sbin/ufi210-modem-time-sync \
     ./usr/sbin/ufi210-wwan-diagnose \
-    ./usr/sbin/zu02-firewall \
-    ./usr/sbin/zu02-mpss-start \
-    ./usr/sbin/zu02-usb-gadget \
-    ./usr/sbin/zu02-usb-watchdog \
-    ./usr/sbin/zu02-usb-adb-experiment \
-    ./usr/sbin/zu02-usb-network \
-    ./usr/sbin/zu02-wcnss-start \
+    ./usr/sbin/ufi210-firewall \
+    ./usr/sbin/ufi210-mpss-start \
+    ./usr/sbin/ufi210-usb-gadget \
+    ./usr/sbin/ufi210-usb-watchdog \
+    ./usr/sbin/ufi210-usb-adb-experiment \
+    ./usr/sbin/ufi210-usb-network \
+    ./usr/sbin/ufi210-wcnss-start \
     ./usr/lib/modules/7.0.0-msm8909/modules.dep; do
     grep -Fqx "$required_path" "$tmp_dir/rootfs-files.txt" \
         || die "rootfs 缺少：$required_path"
@@ -885,27 +885,27 @@ grep -q 'strcmp(argv\[1\], "recovery")' "$REBOOT_COMPAT_SOURCE" \
 adbd_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/adbd.service)"
 grep -q '^Type=notify$' <<<"$adbd_service" || die "adbd 服务类型不是 notify"
 grep -q '^Environment=ADBD_PORT=5555$' <<<"$adbd_service" || die "adbd 未启用 TCP 5555"
-grep -q '^BindsTo=zu02-firewall.service$' <<<"$adbd_service" \
+grep -q '^BindsTo=ufi210-firewall.service$' <<<"$adbd_service" \
     || die "adbd 没有绑定 fail-closed 防火墙服务"
-grep -q '^Wants=zu02-usb-network.service$' <<<"$adbd_service" \
+grep -q '^Wants=ufi210-usb-network.service$' <<<"$adbd_service" \
     || die "adbd 没有声明 USB 管理网络软依赖"
-grep -q '^After=zu02-firewall.service zu02-usb-network.service$' <<<"$adbd_service" \
+grep -q '^After=ufi210-firewall.service ufi210-usb-network.service$' <<<"$adbd_service" \
     || die "adbd 没有排在防火墙和 USB 管理网络之后"
 grep -q '^StartLimitIntervalSec=0$' <<<"$adbd_service" || die "adbd 未关闭启动频率限制"
 grep -q '^ExecStart=/usr/lib/android-sdk/platform-tools/adbd$' <<<"$adbd_service" \
     || die "adbd 启动命令不匹配"
 grep -q '^Restart=on-failure$' <<<"$adbd_service" || die "adbd 未启用故障重启"
-if grep -Eqi 'functionfs|ffs\.adb|zu02-usb-gadget|^ExecStartPre=|^ExecStartPost=|^ExecStopPost=' <<<"$adbd_service"; then
+if grep -Eqi 'functionfs|ffs\.adb|ufi210-usb-gadget|^ExecStartPre=|^ExecStartPost=|^ExecStopPost=' <<<"$adbd_service"; then
     die "TCP adbd 不得管理 USB gadget 生命周期"
 fi
-gadget_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-usb-gadget.service)"
+gadget_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-usb-gadget.service)"
 grep -q '^Type=oneshot$' <<<"$gadget_service" || die "USB gadget 服务不是 oneshot"
-grep -q '^ExecStart=/usr/sbin/zu02-usb-gadget setup$' <<<"$gadget_service" \
+grep -q '^ExecStart=/usr/sbin/ufi210-usb-gadget setup$' <<<"$gadget_service" \
     || die "USB gadget 服务缺少 setup"
-grep -q '^ExecStartPost=/usr/sbin/zu02-usb-gadget activate$' <<<"$gadget_service" \
+grep -q '^ExecStartPost=/usr/sbin/ufi210-usb-gadget activate$' <<<"$gadget_service" \
     || die "USB gadget 服务缺少 activate"
 grep -q '^RemainAfterExit=yes$' <<<"$gadget_service" || die "USB gadget 服务未保持 active 状态"
-gadget_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-usb-gadget)"
+gadget_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-usb-gadget)"
 grep -q 'echo MSFT100.*os_desc/qw_sign' <<<"$gadget_script" || die "USB gadget 缺少 MSFT100 描述符"
 grep -q 'echo 5162001.*sub_compatible_id' <<<"$gadget_script" || die "USB gadget 缺少 RNDIS 子兼容标识"
 grep -q '^    echo "\$USB_SERIAL" > "\$G/strings/0x409/serialnumber"$' <<<"$gadget_script" \
@@ -933,14 +933,14 @@ if grep -Eqi 'functionfs|ffs\.adb' <<<"$gadget_script"; then
 fi
 grep -q '^rebuild() {$' <<<"$gadget_script" || die "USB gadget 缺少完整强制重建路径"
 grep -q '^    rebuild) rebuild ;;$' <<<"$gadget_script" || die "USB gadget 未导出完整强制重建命令"
-adb_experiment_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-usb-adb-experiment)"
+adb_experiment_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-usb-adb-experiment)"
 grep -Fq 'mount -t functionfs adb /dev/usb-ffs/adb' <<<"$adb_experiment_script" \
     || die "USB ADB 实验脚本未使用内核兼容的 FunctionFS 挂载"
 grep -Fq 'systemd-run' "$PROJECT_ROOT/scripts/test_debian_usb_adb_experimental.ps1" \
     || die "USB ADB 宿主实验脚本未使用独立 systemd transient service"
 grep -q '^trap restore EXIT INT TERM HUP$' <<<"$adb_experiment_script" \
     || die "USB ADB 实验脚本缺少异常自动恢复"
-grep -Fq 'systemctl start zu02-usb-watchdog.timer' <<<"$adb_experiment_script" \
+grep -Fq 'systemctl start ufi210-usb-watchdog.timer' <<<"$adb_experiment_script" \
     || die "USB ADB 实验脚本缺少 watchdog 恢复"
 grep -Fq 'DEFAULT_PID=0xD001' <<<"$adb_experiment_script" \
     || die "USB ADB 实验脚本未定义正式 product ID"
@@ -953,45 +953,45 @@ grep -Fq 'echo "$EXPERIMENT_PID" > "$G/idProduct"' <<<"$adb_experiment_script" \
 if grep -Eq '^WantedBy=|systemctl enable|systemctl preset' <<<"$adb_experiment_script"; then
     die "USB ADB 实验脚本不得自启"
 fi
-watchdog_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-usb-watchdog)"
+watchdog_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-usb-watchdog)"
 grep -q '^MIN_UNHEALTHY_SECONDS=5$' <<<"$watchdog_script" \
     || die "USB watchdog 连续异常阈值不匹配"
 grep -q '^usb_healthy() {$' <<<"$watchdog_script" || die "USB watchdog 缺少健康检查"
-grep -q '^    systemctl is-active --quiet zu02-usb-gadget\.service$' <<<"$watchdog_script" \
+grep -q '^    systemctl is-active --quiet ufi210-usb-gadget\.service$' <<<"$watchdog_script" \
     || die "USB watchdog 没有核对 gadget 服务状态"
 if grep -Eqi 'adbd|functionfs|ffs\.adb|/sys/class/udc/.*/state' <<<"$watchdog_script"; then
     die "USB watchdog 不得依赖 ADB 生命周期或主机枚举状态"
 fi
 grep -Fq '0x[dD]001)' <<<"$watchdog_script" \
     || die "USB watchdog 未核对固定 product ID"
-grep -q '^/usr/sbin/zu02-usb-gadget rebuild$' <<<"$watchdog_script" \
+grep -q '^/usr/sbin/ufi210-usb-gadget rebuild$' <<<"$watchdog_script" \
     || die "USB watchdog 没有强制重建 gadget"
-grep -q '^/usr/sbin/zu02-usb-network$' <<<"$watchdog_script" \
+grep -q '^/usr/sbin/ufi210-usb-network$' <<<"$watchdog_script" \
     || die "USB watchdog 没有恢复管理网络"
-watchdog_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-usb-watchdog.service)"
-grep -q '^ExecStart=/usr/sbin/zu02-usb-watchdog$' <<<"$watchdog_service" \
+watchdog_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-usb-watchdog.service)"
+grep -q '^ExecStart=/usr/sbin/ufi210-usb-watchdog$' <<<"$watchdog_service" \
     || die "USB watchdog 服务启动命令不匹配"
-watchdog_timer="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-usb-watchdog.timer)"
+watchdog_timer="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-usb-watchdog.timer)"
 grep -q '^OnBootSec=90s$' <<<"$watchdog_timer" || die "USB watchdog 启动延迟不匹配"
 grep -q '^OnUnitActiveSec=5s$' <<<"$watchdog_timer" || die "USB watchdog 定时间隔不匹配"
 grep -q '^RandomizedDelaySec=0$' <<<"$watchdog_timer" || die "USB watchdog 不得随机延迟"
-network_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-usb-network.service)"
-grep -q '^Requires=zu02-usb-gadget.service$' <<<"$network_service" \
+network_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-usb-network.service)"
+grep -q '^Requires=ufi210-usb-gadget.service$' <<<"$network_service" \
     || die "USB 网络服务未依赖固定 gadget"
 if grep -Eq '^(Wants|Requires)=adbd\.service$' <<<"$network_service"; then
     die "USB 网络服务不得依赖 adbd"
 fi
-serial_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/serial-getty@ttyGS0.service.d/10-zu02.conf)"
-grep -q '^Requires=zu02-usb-gadget.service$' <<<"$serial_service" \
+serial_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/serial-getty@ttyGS0.service.d/10-ufi210.conf)"
+grep -q '^Requires=ufi210-usb-gadget.service$' <<<"$serial_service" \
     || die "ACM getty 未依赖固定 gadget 服务"
-wcnss_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-wcnss.service)"
+wcnss_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-wcnss.service)"
 grep -q '^Before=NetworkManager.service$' <<<"$wcnss_service" \
     || die "WCNSS 服务未排在 NetworkManager 之前"
-grep -q '^ExecStart=/usr/sbin/zu02-wcnss-start$' <<<"$wcnss_service" \
+grep -q '^ExecStart=/usr/sbin/ufi210-wcnss-start$' <<<"$wcnss_service" \
     || die "WCNSS 服务启动命令不匹配"
 grep -q '^RequiresMountsFor=/firmware /persist$' <<<"$wcnss_service" \
     || die "WCNSS 服务未依赖只读 modem/persist 挂载点"
-wcnss_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-wcnss-start)"
+wcnss_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-wcnss-start)"
 grep -q 'remoteproc.*/name' <<<"$wcnss_script" || die "WCNSS 脚本未按 remoteproc name 查找设备"
 grep -q '^        iw reg set CN$' <<<"$wcnss_script" || die "WCNSS 脚本未设置 CN 监管域"
 grep -q "iw reg get | grep -q '\^country CN:'" <<<"$wcnss_script" \
@@ -1002,16 +1002,16 @@ if grep -q 'remoteproc0' <<<"$wcnss_script"; then
     die "WCNSS 脚本不应硬编码 remoteproc0"
 fi
 
-mpss_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-mpss.service)"
+mpss_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-mpss.service)"
 grep -q '^Requires=rmtfs.service$' <<<"$mpss_service" \
     || die "MPSS 服务未强制依赖 rmtfs"
 grep -q '^RequiresMountsFor=/firmware$' <<<"$mpss_service" \
     || die "MPSS 服务未依赖只读 firmware 挂载点"
-grep -q '^Before=zu02-modem-prepare.service ModemManager.service$' <<<"$mpss_service" \
+grep -q '^Before=ufi210-modem-prepare.service ModemManager.service$' <<<"$mpss_service" \
     || die "MPSS 服务顺序不匹配"
-grep -q '^ExecStart=/usr/sbin/zu02-mpss-start$' <<<"$mpss_service" \
+grep -q '^ExecStart=/usr/sbin/ufi210-mpss-start$' <<<"$mpss_service" \
     || die "MPSS 服务启动命令不匹配"
-mpss_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-mpss-start)"
+mpss_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-mpss-start)"
 grep -q 'findmnt -nro OPTIONS /firmware' <<<"$mpss_script" \
     || die "MPSS 脚本未验证 firmware 只读挂载"
 grep -q '^modprobe qcom_q6v5_mss$' <<<"$mpss_script" \
@@ -1019,40 +1019,40 @@ grep -q '^modprobe qcom_q6v5_mss$' <<<"$mpss_script" \
 if grep -q 'remoteproc0' <<<"$mpss_script"; then
     die "MPSS 脚本不应硬编码 remoteproc0"
 fi
-rmtfs_override="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/rmtfs.service.d/10-zu02-read-only.conf)"
+rmtfs_override="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/rmtfs.service.d/10-ufi210-read-only.conf)"
 grep -q '^RequiresMountsFor=/firmware$' <<<"$rmtfs_override" \
     || die "rmtfs 未依赖 modem firmware 挂载点"
 grep -q '^ExecStartPre=/sbin/modprobe qcom_q6v5_mss$' <<<"$rmtfs_override" \
     || die "rmtfs 未在启动前注册 MPSS remoteproc"
 grep -q '^ExecStart=/usr/bin/rmtfs -P -s$' <<<"$rmtfs_override" \
     || die "rmtfs 未固定为物理分区同步模式"
-modem_prepare_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-modem-prepare.service)"
-grep -q '^Requires=zu02-mpss.service qrtr-ns.service rmtfs.service$' <<<"$modem_prepare_service" \
+modem_prepare_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-modem-prepare.service)"
+grep -q '^Requires=ufi210-mpss.service qrtr-ns.service rmtfs.service$' <<<"$modem_prepare_service" \
     || die "modem prepare 服务依赖不完整"
 grep -q '^Before=ModemManager.service$' <<<"$modem_prepare_service" \
     || die "modem prepare 服务未排在 ModemManager 之前"
-modem_prepare_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-modem-prepare)"
+modem_prepare_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-modem-prepare)"
 grep -Fq "ctrl-port-name=DATA5_CNTL,hw-data-ep-type=bam-dmux" <<<"$modem_prepare_script" \
     || die "modem prepare 脚本缺少 DATA5_CNTL/BAM-DMUX DPM 请求"
 grep -q '^    ip link set wwan0 up$' <<<"$modem_prepare_script" \
     || die "modem prepare 脚本未提前打开 BAM-DMUX netdev"
-modemmanager_override="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ModemManager.service.d/10-zu02-dpm.conf)"
-grep -q '^Requires=zu02-modem-prepare.service$' <<<"$modemmanager_override" \
+modemmanager_override="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ModemManager.service.d/10-ufi210-dpm.conf)"
+grep -q '^Requires=ufi210-modem-prepare.service$' <<<"$modemmanager_override" \
     || die "ModemManager 未强制依赖 DPM 准备服务"
-modem_register_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-modem-register.service)"
+modem_register_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-modem-register.service)"
 grep -q '^Requires=ModemManager.service rmtfs.service$' <<<"$modem_register_service" \
     || die "modem 默认模式服务依赖不完整"
-grep -q '^ExecStart=/usr/sbin/zu02-modem-register$' <<<"$modem_register_service" \
+grep -q '^ExecStart=/usr/sbin/ufi210-modem-register$' <<<"$modem_register_service" \
     || die "modem 默认模式服务命令不匹配"
-modem_register_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-modem-register)"
+modem_register_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-modem-register)"
 grep -Fq -- "--set-allowed-modes='3g|4g'" <<<"$modem_register_script" \
     || die "modem 默认模式脚本未启用 3G+4G"
 grep -q '^        --set-preferred-mode=4g; then$' <<<"$modem_register_script" \
     || die "modem 默认模式脚本未优先 4G"
 modem_time_sync_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-modem-time-sync.service)"
-grep -q '^Requires=zu02-modem-register.service$' <<<"$modem_time_sync_service" \
+grep -q '^Requires=ufi210-modem-register.service$' <<<"$modem_time_sync_service" \
     || die "基带校时服务未依赖 modem 注册服务"
-grep -q '^After=zu02-modem-register.service systemd-timesyncd.service$' <<<"$modem_time_sync_service" \
+grep -q '^After=ufi210-modem-register.service systemd-timesyncd.service$' <<<"$modem_time_sync_service" \
     || die "基带校时服务启动顺序不匹配"
 grep -q '^ExecStart=/usr/sbin/ufi210-modem-time-sync$' <<<"$modem_time_sync_service" \
     || die "基带校时服务命令不匹配"
@@ -1065,7 +1065,7 @@ grep -q '^maximum_unix_seconds=2147483647$' <<<"$modem_time_sync_script" \
     || die "基带校时脚本最大可信时间不匹配"
 grep -Fq 'if [ "$modem_unix_seconds" -le $((current_unix_seconds + 5)) ]; then' \
     <<<"$modem_time_sync_script" || die "基带校时脚本可能向后拨动系统时钟"
-wwan_ip_script="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/NetworkManager/dispatcher.d/90-zu02-wwan-ip)"
+wwan_ip_script="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/NetworkManager/dispatcher.d/90-ufi210-wwan-ip)"
 grep -q '^    wwan0|wwan0qmi0) ;;$' <<<"$wwan_ip_script" \
     || die "WWAN dispatcher 未限制到目标 modem 接口"
 grep -q 'bearer\.ipv4-config\.address' <<<"$wwan_ip_script" \
@@ -1089,7 +1089,7 @@ grep -q 'health\.overall_status' <<<"$wwan_diagnose_script" \
 if grep -Fqx './etc/NetworkManager/dispatcher.d/01-ifupdown' "$tmp_dir/rootfs-files.txt"; then
     die "rootfs 不应保留会拒绝 NetworkManager reapply 动作的 ifupdown dispatcher"
 fi
-modprobe_policy="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/modprobe.d/zu02-mpss.conf)"
+modprobe_policy="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/modprobe.d/ufi210-mpss.conf)"
 grep -q '^blacklist qcom_q6v5_mss$' <<<"$modprobe_policy" \
     || die "MPSS 模块未限制为 rmtfs 控制的显式加载"
 
@@ -1144,7 +1144,7 @@ for firmware_name in "${MPSS_FIRMWARE_FILES[@]}"; do
     grep -Fqx "$expected_hash  $firmware_name" "$MPSS_MANIFEST" \
         || die "MPSS 固件清单缺少：$firmware_name"
 done
-journal_config="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/journald.conf.d/10-zu02.conf)"
+journal_config="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/journald.conf.d/10-ufi210.conf)"
 grep -q '^Storage=persistent$' <<<"$journal_config" || die "journald 未启用持久日志"
 nmtui_wrapper="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/local/bin/nmtui)"
 grep -q '^unset LC_ALL$' <<<"$nmtui_wrapper" \
@@ -1157,7 +1157,7 @@ grep -q '^exec /usr/bin/nmtui "$@"$' <<<"$nmtui_wrapper" \
     || die "nmtui 包装器没有执行 Debian nmtui"
 [[ "$(sha256sum "$PROJECT_ROOT/patches/rootfs/usr/local/bin/nmtui" | awk '{print $1}')" == \
     "$(manifest_value nmtui_wrapper_sha256)" ]] || die "nmtui 包装器输入哈希不匹配"
-wifi_ap_profile="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection)"
+wifi_ap_profile="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/NetworkManager/system-connections/ufi210-wifi-ap.nmconnection)"
 for profile_line in \
     'id=SimAdmin Wi-Fi AP' \
     'interface-name=wlan0' \
@@ -1172,9 +1172,9 @@ for profile_line in \
     grep -Fqx "$profile_line" <<<"$wifi_ap_profile" \
         || die "Wi-Fi AP 预置连接缺少：$profile_line"
 done
-[[ "$(sha256sum "$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection" | awk '{print $1}')" == \
+[[ "$(sha256sum "$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/system-connections/ufi210-wifi-ap.nmconnection" | awk '{print $1}')" == \
     "$(manifest_value wifi_ap_profile_sha256)" ]] || die "Wi-Fi AP 连接输入哈希不匹配"
-if grep -Fqx './etc/NetworkManager/system-connections/zu02-usb-management.nmconnection' \
+if grep -Fqx './etc/NetworkManager/system-connections/ufi210-usb-management.nmconnection' \
     "$tmp_dir/rootfs-files.txt"; then
     die "rootfs 不得保留可由 nmtui 停用的 USB 管理连接"
 fi
@@ -1190,12 +1190,12 @@ grep -Fqx 'wifi.cloned-mac-address=stable' <<<"$wifi_mac_conf" \
     || die "Wi-Fi 连接未统一使用稳定 MAC"
 [[ "$(sha256sum "$WIFI_MAC_CONF" | awk '{print $1}')" == \
     "$(manifest_value wifi_mac_conf_sha256)" ]] || die "Wi-Fi MAC 配置输入哈希不匹配"
-usb_network_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-usb-network.service)"
-grep -q '^After=zu02-usb-gadget.service$' <<<"$usb_network_service" \
+usb_network_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-usb-network.service)"
+grep -q '^After=ufi210-usb-gadget.service$' <<<"$usb_network_service" \
     || die "USB 网络服务没有排在 gadget 之后"
 grep -q '^Before=ssh.service dnsmasq.service$' <<<"$usb_network_service" \
     || die "USB 网络服务没有排在管理服务之前"
-usb_network_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-usb-network)"
+usb_network_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-usb-network)"
 if grep -Eq 'nmcli|NetworkManager' <<<"$usb_network_script"; then
     die "USB 网络脚本不得把管理接口交给 NetworkManager"
 fi
@@ -1212,9 +1212,9 @@ locale_archive_hash="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/lib/locale/locale-archi
 unexpected_locale="$(grep '^\./usr/share/locale/.*[^/]$' "$tmp_dir/rootfs-files.txt" \
     | grep -Fvx './usr/share/locale/zh_CN/LC_MESSAGES/NetworkManager.mo' || true)"
 [[ -z "$unexpected_locale" ]] || die "rootfs 含有 nmtui 之外的 locale 文件：$unexpected_locale"
-firewall_rules="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/nftables.d/zu02-firewall.nft)"
-grep -q '^table inet zu02_firewall {$' <<<"$firewall_rules" \
-    || die "缺少独立 ZU02 nftables 表"
+firewall_rules="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/nftables.d/ufi210-firewall.nft)"
+grep -q '^table inet ufi210_firewall {$' <<<"$firewall_rules" \
+    || die "缺少独立 UFI210 nftables 表"
 grep -q 'iifname "lo" accept' <<<"$firewall_rules" \
     || die "管理面防火墙未保留 loopback"
 management_drop_line="$(grep -n 'iifname != { "usb0", "wlan0" } tcp dport { 22, 5555 } counter drop' <<<"$firewall_rules" | cut -d: -f1)"
@@ -1227,27 +1227,27 @@ grep -q 'iifname "wwan0" ct state established,related accept' <<<"$firewall_rule
 grep -q 'iifname "wwan0" counter drop' <<<"$firewall_rules" \
     || die "WWAN 入站防火墙未丢弃新连接"
 if grep -q 'flush ruleset' <<<"$firewall_rules"; then
-    die "ZU02 防火墙不得清空 NetworkManager 动态 nftables 规则"
+    die "UFI210 防火墙不得清空 NetworkManager 动态 nftables 规则"
 fi
-firewall_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/zu02-firewall.service)"
+firewall_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-firewall.service)"
 grep -q '^Before=network-pre.target shutdown.target$' <<<"$firewall_service" \
-    || die "ZU02 防火墙没有在网络启动前加载"
+    || die "UFI210 防火墙没有在网络启动前加载"
 grep -q '^RefuseManualStop=yes$' <<<"$firewall_service" \
-    || die "ZU02 防火墙允许被单独手动停止"
-grep -q '^ExecStart=/usr/sbin/zu02-firewall start$' <<<"$firewall_service" \
-    || die "ZU02 防火墙服务入口不匹配"
-firewall_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/zu02-firewall)"
-grep -q '^        nft delete table inet zu02_firewall$' <<<"$firewall_script" \
-    || die "ZU02 防火墙重载未限制为项目专用表"
+    || die "UFI210 防火墙允许被单独手动停止"
+grep -q '^ExecStart=/usr/sbin/ufi210-firewall start$' <<<"$firewall_service" \
+    || die "UFI210 防火墙服务入口不匹配"
+firewall_script="$(tar -xJOf "$ROOTFS_TARBALL" ./usr/sbin/ufi210-firewall)"
+grep -q '^        nft delete table inet ufi210_firewall$' <<<"$firewall_script" \
+    || die "UFI210 防火墙重载未限制为项目专用表"
 if grep -q 'flush ruleset' <<<"$firewall_script"; then
-    die "ZU02 防火墙脚本不得清空完整 nftables ruleset"
+    die "UFI210 防火墙脚本不得清空完整 nftables ruleset"
 fi
-ssh_dropin="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ssh.service.d/10-zu02.conf)"
-grep -q '^BindsTo=zu02-firewall.service$' <<<"$ssh_dropin" \
+ssh_dropin="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ssh.service.d/10-ufi210.conf)"
+grep -q '^BindsTo=ufi210-firewall.service$' <<<"$ssh_dropin" \
     || die "SSH 没有绑定 fail-closed 防火墙服务"
-grep -q '^Wants=zu02-usb-network.service$' <<<"$ssh_dropin" \
+grep -q '^Wants=ufi210-usb-network.service$' <<<"$ssh_dropin" \
     || die "SSH 没有声明 USB 管理网络软依赖"
-if grep -q '^Requires=zu02-usb-network.service$' <<<"$ssh_dropin"; then
+if grep -q '^Requires=ufi210-usb-network.service$' <<<"$ssh_dropin"; then
     die "SSH 不得因 USB 管理网络短暂重启而被停止"
 fi
 grep -q '^ExecStartPre=$' <<<"$ssh_dropin" || die "SSH drop-in 未重置原有 ExecStartPre"

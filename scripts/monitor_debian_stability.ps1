@@ -22,8 +22,8 @@ if (-not $ProjectRoot) {
 $ProjectRoot = [IO.Path]::GetFullPath($ProjectRoot)
 $Adb = Join-Path $ProjectRoot "adb.exe"
 $Utf8NoBom = New-Object Text.UTF8Encoding($false)
-$ActiveServices = "zu02-firewall zu02-usb-gadget adbd zu02-usb-watchdog.timer zu02-usb-network ssh dnsmasq NetworkManager serial-getty@ttyGS0.service zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync fstrim.timer"
-$RestartTrackedServices = "zu02-firewall zu02-usb-gadget adbd zu02-usb-watchdog.service zu02-usb-network ssh dnsmasq NetworkManager serial-getty@ttyGS0.service zu02-wcnss qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync"
+$ActiveServices = "ufi210-firewall ufi210-usb-gadget adbd ufi210-usb-watchdog.timer ufi210-usb-network ssh dnsmasq NetworkManager serial-getty@ttyGS0.service ufi210-wcnss qrtr-ns rmtfs ufi210-mpss ufi210-modem-prepare ModemManager ufi210-modem-register ufi210-modem-time-sync fstrim.timer"
+$RestartTrackedServices = "ufi210-firewall ufi210-usb-gadget adbd ufi210-usb-watchdog.service ufi210-usb-network ssh dnsmasq NetworkManager serial-getty@ttyGS0.service ufi210-wcnss qrtr-ns rmtfs ufi210-mpss ufi210-modem-prepare ModemManager ufi210-modem-register ufi210-modem-time-sync"
 $ExpectedActiveServices = @($ActiveServices -split ' ').Count
 $ExpectedRestartTrackedServices = @($RestartTrackedServices -split ' ').Count
 $RequiredRootfsAvailableBytes = 32MB

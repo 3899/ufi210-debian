@@ -11,7 +11,7 @@ for mount_dir in /firmware /persist; do
     case ",$mount_options," in
         *,ro,*) ;;
         *)
-            echo "zu02-wcnss-start: $mount_dir is not read-only" >&2
+            echo "ufi210-wcnss-start: $mount_dir is not read-only" >&2
             exit 1
             ;;
     esac
@@ -21,11 +21,11 @@ for firmware_name in $firmware_files; do
     firmware_path="/firmware/image/$firmware_name"
     firmware_link="/usr/lib/firmware/$firmware_name"
     [ -s "$firmware_path" ] || {
-        echo "zu02-wcnss-start: missing $firmware_path" >&2
+        echo "ufi210-wcnss-start: missing $firmware_path" >&2
         exit 1
     }
     [ -L "$firmware_link" ] && [ "$(readlink "$firmware_link")" = "$firmware_path" ] || {
-        echo "zu02-wcnss-start: invalid link $firmware_link" >&2
+        echo "ufi210-wcnss-start: invalid link $firmware_link" >&2
         exit 1
     }
 done
@@ -33,11 +33,11 @@ done
 nv_path=/persist/WCNSS_qcom_wlan_nv.bin
 nv_link=/usr/lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin
 [ -s "$nv_path" ] || {
-    echo "zu02-wcnss-start: missing $nv_path" >&2
+    echo "ufi210-wcnss-start: missing $nv_path" >&2
     exit 1
 }
 [ -L "$nv_link" ] && [ "$(readlink "$nv_link")" = "$nv_path" ] || {
-    echo "zu02-wcnss-start: invalid link $nv_link" >&2
+    echo "ufi210-wcnss-start: invalid link $nv_link" >&2
     exit 1
 }
 

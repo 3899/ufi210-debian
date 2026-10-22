@@ -11,7 +11,7 @@ esac
 nm_device='wwan0qmi0'
 
 log() {
-    logger -t zu02-wwan-ip -- "$*"
+    logger -t ufi210-wwan-ip -- "$*"
 }
 
 bearer_value() {

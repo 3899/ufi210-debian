@@ -60,7 +60,7 @@ for port in /dev/wwan0at0 /dev/wwan0at1 /dev/wwan0qmi0; do
 done
 
 echo '=== SERVICES ==='
-systemctl is-active dbus ModemManager zu02-mpss
+systemctl is-active dbus ModemManager ufi210-mpss
 
 echo '=== MODEM ==='
 mmcli -L

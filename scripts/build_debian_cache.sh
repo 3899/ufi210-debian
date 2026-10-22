@@ -88,19 +88,19 @@ INITRAMFS_BUILD_SCRIPT="$PROJECT_ROOT/scripts/build_debian_initramfs.sh"
 INODE_TIME_TOOL="$PROJECT_ROOT/scripts/normalize_ext4_inode_times.py"
 QCDT_BUILD_SCRIPT="$PROJECT_ROOT/scripts/build_stock_qcdt.py"
 INITRAMFS_INIT="$PROJECT_ROOT/patches/initramfs/init-debian.sh"
-USB_GADGET_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-gadget"
-USB_WATCHDOG_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-watchdog"
-USB_ADB_EXPERIMENT_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-usb-adb-experiment"
-WCNSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wcnss-start"
-MPSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-mpss-start"
-MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-prepare"
-MODEM_REGISTER_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-modem-register"
+USB_GADGET_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-usb-gadget"
+USB_WATCHDOG_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-usb-watchdog"
+USB_ADB_EXPERIMENT_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-usb-adb-experiment"
+WCNSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-wcnss-start"
+MPSS_START_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-mpss-start"
+MODEM_PREPARE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-prepare"
+MODEM_REGISTER_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-register"
 MODEM_TIME_SYNC_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-modem-time-sync"
-WWAN_IP_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/zu02-wwan-ip"
+WWAN_IP_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-wwan-ip"
 WWAN_DIAGNOSE_SCRIPT="$PROJECT_ROOT/patches/rootfs/usr/sbin/ufi210-wwan-diagnose"
 NMTUI_WRAPPER="$PROJECT_ROOT/patches/rootfs/usr/local/bin/nmtui"
 REBOOT_COMPAT_SOURCE="$PROJECT_ROOT/src/reboot-compat.c"
-WIFI_AP_PROFILE="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection"
+WIFI_AP_PROFILE="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/system-connections/ufi210-wifi-ap.nmconnection"
 USB_MANAGEMENT_CONF="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/conf.d/10-ufi210-usb-management.conf"
 WIFI_MAC_CONF="$PROJECT_ROOT/patches/rootfs/etc/NetworkManager/conf.d/20-ufi210-wifi-mac.conf"
 WCNSS_FIRMWARE_DIR="$PROJECT_ROOT/resource/backup/0.modem/image"
@@ -441,7 +441,7 @@ deb [check-valid-until=no] $MIRROR ${SUITE}-updates main
 deb [check-valid-until=no] $SECURITY_MIRROR ${SUITE}-security main
 deb [check-valid-until=no] $MIRROR ${SUITE}-backports main
 EOF
-cat > "$ROOTFS/etc/apt/apt.conf.d/99zu02-build-snapshot" <<'EOF'
+cat > "$ROOTFS/etc/apt/apt.conf.d/99ufi210-build-snapshot" <<'EOF'
 Acquire::Check-Valid-Until "false";
 Acquire::Retries "5";
 EOF
@@ -484,7 +484,7 @@ deb $RUNTIME_MIRROR ${SUITE}-updates main
 deb $RUNTIME_SECURITY_MIRROR ${SUITE}-security main
 deb $RUNTIME_MIRROR ${SUITE}-backports main
 EOF
-rm -f "$ROOTFS/etc/apt/apt.conf.d/99zu02-build-snapshot"
+rm -f "$ROOTFS/etc/apt/apt.conf.d/99ufi210-build-snapshot"
 
 printf 'ufi210\n' > "$ROOTFS/etc/hostname"
 cat > "$ROOTFS/etc/hosts" <<'EOF'
@@ -517,17 +517,17 @@ chown --reference="$ROOTFS/etc/shadow" "$ROOTFS/etc/shadow.new"
 mv "$ROOTFS/etc/shadow.new" "$ROOTFS/etc/shadow"
 
 mkdir -p "$ROOTFS/etc/ssh/sshd_config.d" "$ROOTFS/etc/systemd/system/ssh.service.d"
-cat > "$ROOTFS/etc/ssh/sshd_config.d/10-zu02.conf" <<'EOF'
+cat > "$ROOTFS/etc/ssh/sshd_config.d/10-ufi210.conf" <<'EOF'
 PermitRootLogin yes
 PasswordAuthentication yes
 KbdInteractiveAuthentication no
 UsePAM yes
 EOF
-cat > "$ROOTFS/etc/systemd/system/ssh.service.d/10-zu02.conf" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ssh.service.d/10-ufi210.conf" <<'EOF'
 [Unit]
-After=zu02-firewall.service zu02-usb-network.service
-BindsTo=zu02-firewall.service
-Wants=zu02-usb-network.service
+After=ufi210-firewall.service ufi210-usb-network.service
+BindsTo=ufi210-firewall.service
+Wants=ufi210-usb-network.service
 
 [Service]
 ExecStartPre=
@@ -550,15 +550,15 @@ if [[ "$TARGET_PARTITION" == system ]]; then
     mkdir -p "$ROOTFS/data"
 fi
 install -d -m 1777 "$ROOTFS/data/local/tmp"
-install -m 0755 "$USB_GADGET_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-gadget"
-install -m 0755 "$USB_WATCHDOG_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-watchdog"
-install -m 0755 "$USB_ADB_EXPERIMENT_SCRIPT" "$ROOTFS/usr/sbin/zu02-usb-adb-experiment"
-install -m 0755 "$WCNSS_START_SCRIPT" "$ROOTFS/usr/sbin/zu02-wcnss-start"
-install -m 0755 "$MPSS_START_SCRIPT" "$ROOTFS/usr/sbin/zu02-mpss-start"
-install -m 0755 "$MODEM_PREPARE_SCRIPT" "$ROOTFS/usr/sbin/zu02-modem-prepare"
-install -m 0755 "$MODEM_REGISTER_SCRIPT" "$ROOTFS/usr/sbin/zu02-modem-register"
+install -m 0755 "$USB_GADGET_SCRIPT" "$ROOTFS/usr/sbin/ufi210-usb-gadget"
+install -m 0755 "$USB_WATCHDOG_SCRIPT" "$ROOTFS/usr/sbin/ufi210-usb-watchdog"
+install -m 0755 "$USB_ADB_EXPERIMENT_SCRIPT" "$ROOTFS/usr/sbin/ufi210-usb-adb-experiment"
+install -m 0755 "$WCNSS_START_SCRIPT" "$ROOTFS/usr/sbin/ufi210-wcnss-start"
+install -m 0755 "$MPSS_START_SCRIPT" "$ROOTFS/usr/sbin/ufi210-mpss-start"
+install -m 0755 "$MODEM_PREPARE_SCRIPT" "$ROOTFS/usr/sbin/ufi210-modem-prepare"
+install -m 0755 "$MODEM_REGISTER_SCRIPT" "$ROOTFS/usr/sbin/ufi210-modem-register"
 install -m 0755 "$MODEM_TIME_SYNC_SCRIPT" "$ROOTFS/usr/sbin/ufi210-modem-time-sync"
-install -m 0755 "$WWAN_IP_SCRIPT" "$ROOTFS/etc/NetworkManager/dispatcher.d/90-zu02-wwan-ip"
+install -m 0755 "$WWAN_IP_SCRIPT" "$ROOTFS/etc/NetworkManager/dispatcher.d/90-ufi210-wwan-ip"
 install -m 0755 "$WWAN_DIAGNOSE_SCRIPT" "$ROOTFS/usr/sbin/ufi210-wwan-diagnose"
 install -m 0755 "$NMTUI_WRAPPER" "$ROOTFS/usr/local/bin/nmtui"
 arm-linux-gnueabihf-gcc \
@@ -573,23 +573,23 @@ chroot "$ROOTFS" /usr/bin/qemu-arm-static /system/bin/reboot unsupported \
 (( reboot_test_rc == 2 )) || die "ADB reboot 兼容程序的参数校验失败"
 reboot_compat_binary_sha256="$(sha256sum "$ROOTFS/system/bin/reboot" | awk '{print $1}')"
 install -m 0600 "$WIFI_AP_PROFILE" \
-    "$ROOTFS/etc/NetworkManager/system-connections/zu02-wifi-ap.nmconnection"
+    "$ROOTFS/etc/NetworkManager/system-connections/ufi210-wifi-ap.nmconnection"
 install -m 0644 "$USB_MANAGEMENT_CONF" \
     "$ROOTFS/etc/NetworkManager/conf.d/10-ufi210-usb-management.conf"
 install -m 0644 "$WIFI_MAC_CONF" \
     "$ROOTFS/etc/NetworkManager/conf.d/20-ufi210-wifi-mac.conf"
 
-cat > "$ROOTFS/etc/systemd/system/zu02-usb-gadget.service" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ufi210-usb-gadget.service" <<'EOF'
 [Unit]
-Description=ZU02 fixed RNDIS and ACM USB gadget
+Description=UFI210 fixed RNDIS and ACM USB gadget
 Wants=sys-kernel-config.mount
 After=sys-kernel-config.mount systemd-udevd.service
-Before=zu02-usb-network.service
+Before=ufi210-usb-network.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/zu02-usb-gadget setup
-ExecStartPost=/usr/sbin/zu02-usb-gadget activate
+ExecStart=/usr/sbin/ufi210-usb-gadget setup
+ExecStartPost=/usr/sbin/ufi210-usb-gadget activate
 RemainAfterExit=yes
 
 [Install]
@@ -599,9 +599,9 @@ EOF
 cat > "$ROOTFS/etc/systemd/system/adbd.service" <<'EOF'
 [Unit]
 Description=Android Debug Bridge daemon on the USB management network
-After=zu02-firewall.service zu02-usb-network.service
-BindsTo=zu02-firewall.service
-Wants=zu02-usb-network.service
+After=ufi210-firewall.service ufi210-usb-network.service
+BindsTo=ufi210-firewall.service
+Wants=ufi210-usb-network.service
 StartLimitIntervalSec=0
 
 [Service]
@@ -615,17 +615,17 @@ RestartSec=2
 WantedBy=multi-user.target
 EOF
 
-cat > "$ROOTFS/etc/systemd/system/zu02-usb-watchdog.service" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ufi210-usb-watchdog.service" <<'EOF'
 [Unit]
 Description=Recover the UFI210 USB management gadget
-After=zu02-usb-gadget.service zu02-usb-network.service
+After=ufi210-usb-gadget.service ufi210-usb-network.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/zu02-usb-watchdog
+ExecStart=/usr/sbin/ufi210-usb-watchdog
 EOF
 
-cat > "$ROOTFS/etc/systemd/system/zu02-usb-watchdog.timer" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ufi210-usb-watchdog.timer" <<'EOF'
 [Unit]
 Description=Periodically verify the UFI210 USB management gadget
 
@@ -634,13 +634,13 @@ OnBootSec=90s
 OnUnitActiveSec=5s
 AccuracySec=1s
 RandomizedDelaySec=0
-Unit=zu02-usb-watchdog.service
+Unit=ufi210-usb-watchdog.service
 
 [Install]
 WantedBy=timers.target
 EOF
 
-cat > "$ROOTFS/usr/sbin/zu02-usb-network" <<'EOF'
+cat > "$ROOTFS/usr/sbin/ufi210-usb-network" <<'EOF'
 #!/bin/sh
 set -eu
 
@@ -653,27 +653,27 @@ done
 ip link set usb0 up
 ip addr replace 192.168.68.1/24 dev usb0
 EOF
-chmod 0755 "$ROOTFS/usr/sbin/zu02-usb-network"
+chmod 0755 "$ROOTFS/usr/sbin/ufi210-usb-network"
 
-cat > "$ROOTFS/etc/systemd/system/zu02-usb-network.service" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ufi210-usb-network.service" <<'EOF'
 [Unit]
-Description=ZU02 USB management network
-Requires=zu02-usb-gadget.service
-After=zu02-usb-gadget.service
+Description=UFI210 USB management network
+Requires=ufi210-usb-gadget.service
+After=ufi210-usb-gadget.service
 Before=ssh.service dnsmasq.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/zu02-usb-network
+ExecStart=/usr/sbin/ufi210-usb-network
 RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-cat > "$ROOTFS/etc/systemd/system/zu02-wcnss.service" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ufi210-wcnss.service" <<'EOF'
 [Unit]
-Description=Start ZU02 Qualcomm WCNSS remote processor
+Description=Start UFI210 Qualcomm WCNSS remote processor
 After=systemd-udev-trigger.service local-fs.target
 Before=NetworkManager.service
 ConditionPathExistsGlob=/sys/class/remoteproc/remoteproc*/state
@@ -681,7 +681,7 @@ RequiresMountsFor=/firmware /persist
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/zu02-wcnss-start
+ExecStart=/usr/sbin/ufi210-wcnss-start
 RemainAfterExit=yes
 
 [Install]
@@ -692,14 +692,14 @@ mkdir -p \
     "$ROOTFS/etc/modprobe.d" \
     "$ROOTFS/etc/systemd/system/rmtfs.service.d" \
     "$ROOTFS/etc/systemd/system/ModemManager.service.d"
-cat > "$ROOTFS/etc/modprobe.d/zu02-mpss.conf" <<'EOF'
+cat > "$ROOTFS/etc/modprobe.d/ufi210-mpss.conf" <<'EOF'
 # Only rmtfs may register MPSS, after /firmware is mounted and before it synchronizes startup.
 blacklist qcom_q6v5_mss
 EOF
-cat > "$ROOTFS/etc/systemd/system/rmtfs.service.d/10-zu02-read-only.conf" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/rmtfs.service.d/10-ufi210-read-only.conf" <<'EOF'
 [Unit]
 After=local-fs.target systemd-udev-trigger.service qrtr-ns.service
-Before=zu02-mpss.service
+Before=ufi210-mpss.service
 RequiresMountsFor=/firmware
 
 [Service]
@@ -707,34 +707,34 @@ ExecStartPre=/sbin/modprobe qcom_q6v5_mss
 ExecStart=
 ExecStart=/usr/bin/rmtfs -P -s
 EOF
-cat > "$ROOTFS/etc/systemd/system/zu02-mpss.service" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ufi210-mpss.service" <<'EOF'
 [Unit]
-Description=Start ZU02 Qualcomm MPSS remote processor
+Description=Start UFI210 Qualcomm MPSS remote processor
 Wants=qrtr-ns.service
 Requires=rmtfs.service
 After=local-fs.target systemd-udev-trigger.service qrtr-ns.service rmtfs.service
-Before=zu02-modem-prepare.service ModemManager.service
+Before=ufi210-modem-prepare.service ModemManager.service
 RequiresMountsFor=/firmware
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/zu02-mpss-start
+ExecStart=/usr/sbin/ufi210-mpss-start
 RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
 EOF
-cat > "$ROOTFS/etc/systemd/system/zu02-modem-prepare.service" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ufi210-modem-prepare.service" <<'EOF'
 [Unit]
-Description=Open ZU02 MSM8909 QMI and BAM-DMUX ports
-Requires=zu02-mpss.service qrtr-ns.service rmtfs.service
-After=zu02-mpss.service qrtr-ns.service rmtfs.service
+Description=Open UFI210 MSM8909 QMI and BAM-DMUX ports
+Requires=ufi210-mpss.service qrtr-ns.service rmtfs.service
+After=ufi210-mpss.service qrtr-ns.service rmtfs.service
 Before=ModemManager.service
 StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/zu02-modem-prepare
+ExecStart=/usr/sbin/ufi210-modem-prepare
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=5
@@ -742,21 +742,21 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target
 EOF
-cat > "$ROOTFS/etc/systemd/system/ModemManager.service.d/10-zu02-dpm.conf" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ModemManager.service.d/10-ufi210-dpm.conf" <<'EOF'
 [Unit]
-Requires=zu02-modem-prepare.service
-After=zu02-modem-prepare.service
+Requires=ufi210-modem-prepare.service
+After=ufi210-modem-prepare.service
 EOF
-cat > "$ROOTFS/etc/systemd/system/zu02-modem-register.service" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/ufi210-modem-register.service" <<'EOF'
 [Unit]
-Description=Set ZU02 modem to 3G and 4G with 4G preferred
+Description=Set UFI210 modem to 3G and 4G with 4G preferred
 Requires=ModemManager.service rmtfs.service
 After=ModemManager.service rmtfs.service
 StartLimitIntervalSec=0
 
 [Service]
 Type=oneshot
-ExecStart=/usr/sbin/zu02-modem-register
+ExecStart=/usr/sbin/ufi210-modem-register
 RemainAfterExit=yes
 Restart=on-failure
 RestartSec=5
@@ -767,8 +767,8 @@ EOF
 cat > "$ROOTFS/etc/systemd/system/ufi210-modem-time-sync.service" <<'EOF'
 [Unit]
 Description=Seed the UFI210 system clock from validated modem time
-Requires=zu02-modem-register.service
-After=zu02-modem-register.service systemd-timesyncd.service
+Requires=ufi210-modem-register.service
+After=ufi210-modem-register.service systemd-timesyncd.service
 
 [Service]
 Type=oneshot
@@ -780,7 +780,7 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 EOF
 
-cat > "$ROOTFS/etc/dnsmasq.d/zu02-usb.conf" <<'EOF'
+cat > "$ROOTFS/etc/dnsmasq.d/ufi210-usb.conf" <<'EOF'
 port=0
 interface=usb0
 bind-dynamic
@@ -789,15 +789,15 @@ dhcp-option=3
 dhcp-option=6
 EOF
 mkdir -p "$ROOTFS/etc/systemd/system/dnsmasq.service.d"
-cat > "$ROOTFS/etc/systemd/system/dnsmasq.service.d/10-zu02.conf" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/dnsmasq.service.d/10-ufi210.conf" <<'EOF'
 [Unit]
-Requires=zu02-usb-network.service
-After=zu02-usb-network.service
+Requires=ufi210-usb-network.service
+After=ufi210-usb-network.service
 EOF
 
 mkdir -p "$ROOTFS/etc/nftables.d"
-cat > "$ROOTFS/etc/nftables.d/zu02-firewall.nft" <<'EOF'
-table inet zu02_firewall {
+cat > "$ROOTFS/etc/nftables.d/ufi210-firewall.nft" <<'EOF'
+table inet ufi210_firewall {
     chain input {
         type filter hook input priority filter; policy accept;
         iifname "lo" accept
@@ -807,20 +807,20 @@ table inet zu02_firewall {
     }
 }
 EOF
-cat > "$ROOTFS/usr/sbin/zu02-firewall" <<'EOF'
+cat > "$ROOTFS/usr/sbin/ufi210-firewall" <<'EOF'
 #!/bin/sh
 set -eu
 
 delete_table() {
-    if nft list table inet zu02_firewall >/dev/null 2>&1; then
-        nft delete table inet zu02_firewall
+    if nft list table inet ufi210_firewall >/dev/null 2>&1; then
+        nft delete table inet ufi210_firewall
     fi
 }
 
 case "${1:-start}" in
     start|reload)
         delete_table
-        nft -f /etc/nftables.d/zu02-firewall.nft
+        nft -f /etc/nftables.d/ufi210-firewall.nft
         ;;
     stop)
         delete_table
@@ -831,10 +831,10 @@ case "${1:-start}" in
         ;;
 esac
 EOF
-chmod 0755 "$ROOTFS/usr/sbin/zu02-firewall"
-cat > "$ROOTFS/etc/systemd/system/zu02-firewall.service" <<'EOF'
+chmod 0755 "$ROOTFS/usr/sbin/ufi210-firewall"
+cat > "$ROOTFS/etc/systemd/system/ufi210-firewall.service" <<'EOF'
 [Unit]
-Description=ZU02 firewall protecting USB-only management and WWAN ingress
+Description=UFI210 firewall protecting USB-only management and WWAN ingress
 Wants=network-pre.target
 Before=network-pre.target shutdown.target
 Conflicts=shutdown.target
@@ -844,9 +844,9 @@ RefuseManualStop=yes
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-ExecStart=/usr/sbin/zu02-firewall start
-ExecReload=/usr/sbin/zu02-firewall reload
-ExecStop=/usr/sbin/zu02-firewall stop
+ExecStart=/usr/sbin/ufi210-firewall start
+ExecReload=/usr/sbin/ufi210-firewall reload
+ExecStop=/usr/sbin/ufi210-firewall stop
 
 [Install]
 WantedBy=sysinit.target
@@ -857,14 +857,14 @@ mkdir -p \
     "$ROOTFS/etc/systemd/system/serial-getty@ttyGS0.service.d"
 ln -sf /lib/systemd/system/serial-getty@.service \
     "$ROOTFS/etc/systemd/system/getty.target.wants/serial-getty@ttyGS0.service"
-cat > "$ROOTFS/etc/systemd/system/serial-getty@ttyGS0.service.d/10-zu02.conf" <<'EOF'
+cat > "$ROOTFS/etc/systemd/system/serial-getty@ttyGS0.service.d/10-ufi210.conf" <<'EOF'
 [Unit]
-Requires=zu02-usb-gadget.service
-After=zu02-usb-gadget.service
+Requires=ufi210-usb-gadget.service
+After=ufi210-usb-gadget.service
 EOF
 
 mkdir -p "$ROOTFS/etc/systemd/journald.conf.d" "$ROOTFS/var/log/journal"
-cat > "$ROOTFS/etc/systemd/journald.conf.d/10-zu02.conf" <<'EOF'
+cat > "$ROOTFS/etc/systemd/journald.conf.d/10-ufi210.conf" <<'EOF'
 [Journal]
 Storage=persistent
 Compress=yes
@@ -935,7 +935,7 @@ python3 "$QCDT_BUILD_SCRIPT" \
 qcdt_sha256="$(sha256sum "$QCDT" | awk '{print $1}')"
 
 chroot "$ROOTFS" /usr/bin/qemu-arm-static /bin/bash -lc \
-    'systemctl enable zu02-firewall zu02-usb-gadget zu02-usb-watchdog.timer zu02-wcnss adbd zu02-usb-network ssh dnsmasq NetworkManager qrtr-ns rmtfs zu02-mpss zu02-modem-prepare ModemManager zu02-modem-register ufi210-modem-time-sync systemd-timesyncd fstrim.timer serial-getty@ttyGS0.service >/dev/null'
+    'systemctl enable ufi210-firewall ufi210-usb-gadget ufi210-usb-watchdog.timer ufi210-wcnss adbd ufi210-usb-network ssh dnsmasq NetworkManager qrtr-ns rmtfs ufi210-mpss ufi210-modem-prepare ModemManager ufi210-modem-register ufi210-modem-time-sync systemd-timesyncd fstrim.timer serial-getty@ttyGS0.service >/dev/null'
 
 log "清理 Debian ${TARGET_PARTITION} rootfs"
 chroot "$ROOTFS" /usr/bin/qemu-arm-static /bin/bash -lc 'apt-get clean'

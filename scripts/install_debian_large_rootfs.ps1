@@ -447,7 +447,7 @@ root_probe="/var/tmp/.ufi210-install-write-test-$$"
 printf 'ok\n' > "$root_probe"
 test "$(cat "$root_probe")" = ok
 rm -f "$root_probe"
-systemctl is-active NetworkManager ssh adbd zu02-usb-watchdog.timer zu02-wcnss zu02-mpss ModemManager fstrim.timer
+systemctl is-active NetworkManager ssh adbd ufi210-usb-watchdog.timer ufi210-wcnss ufi210-mpss ModemManager fstrim.timer
 test "$(systemctl --failed --no-legend --plain | wc -l)" = 0
 test "$(nmcli -t -f DEVICE,STATE device status | grep '^usb0:')" = usb0:unmanaged
 ip -4 -o address show dev usb0 | grep -q ' 192.168.68.1/24 '

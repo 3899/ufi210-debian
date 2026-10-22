@@ -10,7 +10,7 @@
 
 - **基带第二通道与双网卡对齐**：
   - 内核驱动 `rpmsg_wwan_ctrl` 增加 `DATA6_CNTL` 映射（`WWAN_PORT_QMI`），开机自动暴露 `/dev/wwan0qmi1`；
-  - 启动服务 `zu02-modem-prepare` 同步请求 DPM 打开通道 1（`hw-data-ep-iface-number=1`），原生激活第二网络接口 `wwan1`（BAM-DMUX Channel 1）；
+  - 启动服务 `ufi210-modem-prepare` 同步请求 DPM 打开通道 1（`hw-data-ep-iface-number=1`），原生激活第二网络接口 `wwan1`（BAM-DMUX Channel 1）；
   - 与高通 MSM8916 (410) 平台系统拓扑完全对齐，从固件底层彻底消除单物理网口排他性冲突，支持普通互联网（`wwan0`）与 VoLTE / IMS 专网（`wwan1`）硬件级隔离并发；
   - 启动逻辑具备平滑降级容错机制：若副通道未就绪，主通道依然正常启动，确保设备启动鲁棒性。
 

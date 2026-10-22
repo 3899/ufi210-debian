@@ -124,7 +124,7 @@ if ($deviceState.Text.Trim() -ne "device") { throw "TCP ADB 不可用：$AdbSeri
 
 $policy = Invoke-AdbShell @'
 set -eu
-systemctl is-active rmtfs zu02-mpss zu02-modem-prepare ModemManager NetworkManager
+systemctl is-active rmtfs ufi210-mpss ufi210-modem-prepare ModemManager NetworkManager
 systemctl show rmtfs -p ExecStart --no-pager
 findmnt -nro SOURCE,FSTYPE,OPTIONS /firmware
 findmnt -nro SOURCE,FSTYPE,OPTIONS /persist
@@ -241,7 +241,7 @@ ip -4 route show dev wwan0
     }
     Write-Utf8File (Join-Path $OutputDir "network.txt") ($network.Text + "`r`n")
     if ($networkReady) {
-        $dispatcherProbe = Invoke-AdbShell 'test -x /etc/NetworkManager/dispatcher.d/90-zu02-wwan-ip' -AllowFailure
+        $dispatcherProbe = Invoke-AdbShell 'test -x /etc/NetworkManager/dispatcher.d/90-ufi210-wwan-ip' -AllowFailure
         $networkManagerDispatcherConfig = $dispatcherProbe.ExitCode -eq 0
     } else {
         $parsedAddress = $null
