@@ -63,7 +63,7 @@ audit_source_tree() {
     while IFS= read -r -d '' path; do
         rel="${path#"$TARGET"/}"
         case "$rel" in
-            .dockerignore|.gitattributes|.gitignore|Dockerfile|LICENSE|README.md|SECURITY.md|build.sh|install.bat|enter-fastboot.bat|connect-adb.bat|resource/README.md) ;;
+            .dockerignore|.gitattributes|.gitignore|Dockerfile|LICENSE|README.md|SECURITY.md|VERSION|build.sh|install.bat|enter-fastboot.bat|connect-adb.bat|resource/README.md) ;;
             docker/kernel/Dockerfile) ;;
             .github/workflows/*.yml) ;;
             configs/*.config) ;;

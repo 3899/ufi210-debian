@@ -771,12 +771,14 @@ for required_path in \
     ./etc/systemd/system/ufi210-wcnss.service \
     ./etc/systemd/system/ufi210-mpss.service \
     ./etc/systemd/system/ufi210-modem-prepare.service \
+    ./etc/systemd/system/ufi210-modem-reprepare.service \
     ./etc/systemd/system/ufi210-modem-register.service \
     ./etc/systemd/system/ufi210-modem-time-sync.service \
     ./etc/systemd/system/ufi210-firewall.service \
     ./etc/systemd/system/rmtfs.service.d/10-ufi210-read-only.conf \
     ./etc/systemd/system/ModemManager.service.d/10-ufi210-dpm.conf \
     ./etc/modprobe.d/ufi210-mpss.conf \
+    ./etc/udev/rules.d/99-ufi210-modem-prepare.rules \
     ./etc/systemd/system/multi-user.target.wants/adbd.service \
     ./etc/systemd/system/multi-user.target.wants/ufi210-usb-gadget.service \
     ./etc/systemd/system/timers.target.wants/ufi210-usb-watchdog.timer \
@@ -1039,6 +1041,14 @@ grep -q '^    ip link set wwan0 up$' <<<"$modem_prepare_script" \
 modemmanager_override="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ModemManager.service.d/10-ufi210-dpm.conf)"
 grep -q '^Requires=ufi210-modem-prepare.service$' <<<"$modemmanager_override" \
     || die "ModemManager 未强制依赖 DPM 准备服务"
+modem_reprepare_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-modem-reprepare.service)"
+grep -q '^RemainAfterExit=no$' <<<"$modem_reprepare_service" \
+    || die "modem reprepare 服务不应设置 RemainAfterExit=yes，否则 SSR 后无法重触发"
+grep -q '^ExecStart=/usr/sbin/ufi210-modem-prepare$' <<<"$modem_reprepare_service" \
+    || die "modem reprepare 服务命令不匹配"
+modem_prepare_udev_rule="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/udev/rules.d/99-ufi210-modem-prepare.rules)"
+grep -Fq 'ACTION=="add", SUBSYSTEM=="wwan", KERNEL=="wwan*at0", TAG+="systemd", ENV{SYSTEMD_WANTS}="ufi210-modem-reprepare.service"' <<<"$modem_prepare_udev_rule" \
+    || die "缺少 WWAN AT 端口出现时触发 DPM 重建的 udev 规则"
 modem_register_service="$(tar -xJOf "$ROOTFS_TARBALL" ./etc/systemd/system/ufi210-modem-register.service)"
 grep -q '^Requires=ModemManager.service rmtfs.service$' <<<"$modem_register_service" \
     || die "modem 默认模式服务依赖不完整"

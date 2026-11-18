@@ -6,6 +6,20 @@
 `armhf` 持久候选。它不包含桌面、触摸栈、Web 管理项目、设备分区备份、校准数据或闭源固件
 内容。
 
+## 版本 1.3 更新说明
+
+- **基带 SSR 异常恢复后端口自动重建**：
+  - 新增非驻留服务 `ufi210-modem-reprepare.service`（`RemainAfterExit=no`）与 `udev` 规则 `99-ufi210-modem-prepare.rules`；
+  - 当调制解调器发生子系统重启（SSR）并重新枚举 `wwan*at0` 时，自动触发 `ufi210-modem-prepare` 重建 DPM/QMI 与 BAM-DMUX 数据端口。
+- **动态 USB Gadget 序列号与通用化描述符**：
+  - `ufi210-usb-gadget` 基于 `androidboot.serialno` 或 eMMC CID 硬件唯一种子动态派生 USB `serialnumber` 与激活复用校验，避免多设备同时接入时的 USB PnP 冲突；
+  - 统一 USB 厂商/产品描述符为 `UFI210` / `UFI210 Debian`，预置 Wi-Fi AP 默认 SSID 对齐为 `SimAdmin`。
+- **全系 QCDT 硬件匹配与通用 boot 工具**：
+  - `scripts/build_stock_qcdt.py` 新增 `--all-platforms` 参数，支持保留原厂全部 137 条 MSM8909 衍生芯片与板级匹配条目并统一映射至主线 DTB；
+  - 新增无依赖构建工具 `scripts/build_universal_boot.py` 便于生成全兼容 Universal `boot.img`。
+- **系统服务与管理脚本命名统一**：
+  - 核心管理脚本、Systemd 单元、NetworkManager 配置与回归测试统一采用 `ufi210-` 命名前缀。
+
 ## 增强说明 (Dual-WWAN 与多通道并发支持)
 
 - **基带第二通道与双网卡对齐**：

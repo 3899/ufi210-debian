@@ -5,6 +5,12 @@ export LC_ALL=C.UTF-8
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${1:-}"
+if [[ -z "$VERSION" && -s "$PROJECT_ROOT/VERSION" ]]; then
+    VERSION="$(tr -d '[:space:]' < "$PROJECT_ROOT/VERSION")"
+    if [[ -n "$VERSION" && "$VERSION" != v* ]]; then
+        VERSION="v$VERSION"
+    fi
+fi
 PROJECT_SOURCE_DATE_EPOCH=1781860238
 SOURCE_DATE_EPOCH="${SOURCE_DATE_EPOCH:-$PROJECT_SOURCE_DATE_EPOCH}"
 OUT_ROOT="${OUT_ROOT:-$PROJECT_ROOT/out/release-candidate}"
@@ -70,7 +76,7 @@ rm -rf -- "$release_dir"
 mkdir -p "$source_stage" "$binary_stage/scripts" "$binary_stage/LICENSES"
 
 log "按白名单收集公开源码"
-for file in .dockerignore .gitattributes .gitignore Dockerfile LICENSE README.md SECURITY.md build.sh install.bat enter-fastboot.bat connect-adb.bat resource/README.md; do
+for file in .dockerignore .gitattributes .gitignore Dockerfile LICENSE README.md SECURITY.md VERSION build.sh install.bat enter-fastboot.bat connect-adb.bat resource/README.md; do
     install -D -m 0644 "$PROJECT_ROOT/$file" "$source_stage/$file"
 done
 while IFS= read -r -d '' file; do

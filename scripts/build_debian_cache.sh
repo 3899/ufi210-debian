@@ -690,6 +690,7 @@ EOF
 
 mkdir -p \
     "$ROOTFS/etc/modprobe.d" \
+    "$ROOTFS/etc/udev/rules.d" \
     "$ROOTFS/etc/systemd/system/rmtfs.service.d" \
     "$ROOTFS/etc/systemd/system/ModemManager.service.d"
 cat > "$ROOTFS/etc/modprobe.d/ufi210-mpss.conf" <<'EOF'
@@ -746,6 +747,21 @@ cat > "$ROOTFS/etc/systemd/system/ModemManager.service.d/10-ufi210-dpm.conf" <<'
 [Unit]
 Requires=ufi210-modem-prepare.service
 After=ufi210-modem-prepare.service
+EOF
+cat > "$ROOTFS/etc/systemd/system/ufi210-modem-reprepare.service" <<'EOF'
+[Unit]
+Description=Re-open UFI210 MSM8909 QMI and BAM-DMUX ports after modem reset
+Requires=qrtr-ns.service rmtfs.service
+After=ufi210-modem-prepare.service qrtr-ns.service rmtfs.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=oneshot
+ExecStart=/usr/sbin/ufi210-modem-prepare
+RemainAfterExit=no
+EOF
+cat > "$ROOTFS/etc/udev/rules.d/99-ufi210-modem-prepare.rules" <<'EOF'
+ACTION=="add", SUBSYSTEM=="wwan", KERNEL=="wwan*at0", TAG+="systemd", ENV{SYSTEMD_WANTS}="ufi210-modem-reprepare.service"
 EOF
 cat > "$ROOTFS/etc/systemd/system/ufi210-modem-register.service" <<'EOF'
 [Unit]

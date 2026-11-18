@@ -19,16 +19,16 @@ RAM、电源、USB、WCNSS 和 MPSS，再为对应硬件建立独立 target。
 
 ## 默认配置
 
-| 项目 | 默认值 |
-| --- | --- |
-| 主机名 | `ufi210` |
-| USB 管理地址 | `192.168.68.1/24` |
-| SSH 用户 | `root` |
-| root 初始密码 | `simadmin` |
-| TCP ADB 地址 | `192.168.68.1:5555` |
-| Wi-Fi AP SSID | `SimAdmin` |
-| Wi-Fi AP 初始密码 | `simadmin` |
-| Wi-Fi AP 地址 | `192.168.69.1/24` |
+| 项目              | 默认值                |
+| ----------------- | --------------------- |
+| 主机名            | `ufi210`            |
+| USB 管理地址      | `192.168.68.1/24`   |
+| SSH 用户          | `root`              |
+| root 初始密码     | `simadmin`          |
+| TCP ADB 地址      | `192.168.68.1:5555` |
+| Wi-Fi AP SSID     | `SimAdmin`          |
+| Wi-Fi AP 初始密码 | `simadmin`          |
+| Wi-Fi AP 地址     | `192.168.69.1/24`   |
 
 首次登录后应立即执行 `passwd`，并在启用热点前修改热点密码。
 
